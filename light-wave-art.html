@@ -214,43 +214,51 @@
 <script>
 try {
 
-const video    = document.getElementById('video');
-const photoImg = document.getElementById('photoImg');
-const photoWrap= document.getElementById('photoWrap');
-const pvWrap   = document.getElementById('pvWrap');
-const ac = document.getElementById('ac');
-const gc = document.getElementById('gc');
-const wc = document.getElementById('wc');
-const gx = gc.getContext('2d');
-const wx = wc.getContext('2d');
-const ax = ac.getContext('2d',{willReadFrequently:true});
+var video    = document.getElementById('video');
+var photoImg = document.getElementById('photoImg');
+var photoWrap= document.getElementById('photoWrap');
+var pvWrap   = document.getElementById('pvWrap');
+var ac = document.getElementById('ac');
+var gc = document.getElementById('gc');
+var wc = document.getElementById('wc');
+var gx = gc.getContext('2d');
+var wx = wc.getContext('2d');
+var ax = ac.getContext('2d',{willReadFrequently:true});
 
-const DPR = window.devicePixelRatio || 1;
+var DPR = window.devicePixelRatio || 1;
 
-const AH_CAMERA = 240;
-let AH = AH_CAMERA;
+var AH_CAMERA = 240;  /* Camera: fixed at 240 for performance */
+var AH = AH_CAMERA;
 
-let GAIN_NUMER = 160;
-let DECAY      = 0.72;
-let GAMMA      = 0.55;
-let CMIX       = 0.30;
-const PAD_T=8, PAD_B=22, PAD_L=34, PAD_R=4, HDR=26, TABH=36;
+var GAIN_NUMER = 160;
+var DECAY      = 0.72;
+var GAMMA      = 0.55;
+var CMIX       = 0.30;
+var PAD_T=8, PAD_B=22, PAD_L=34, PAD_R=4, HDR=26, TABH=36;
 
-let mode='rgb', source='camera';
-let running=false, photoLoaded=false;
-let lastT=performance.now();
+var mode='rgb', source='camera';
+var running=false, photoLoaded=false;
+var lastT=performance.now();
 
-let W=0, H=0, pW=0, pH=0, AW=1;
-let cssW=0, cssH=0;
-let sPAD_T=0, sPAD_B=0, sPAD_L=0, sPAD_R=0;
+var W=0, H=0, pW=0, pH=0, AW=1;
+var cssW=0, cssH=0;
+var sPAD_T=0, sPAD_B=0, sPAD_L=0, sPAD_R=0;
 
-let pxR=null, pxG=null, pxB=null, pxL=null;
-let densR=null, densG=null, densB=null;
-let persR=null, persG=null, persB=null;
+/* FIX #3: Photo aspect ratio tracking */
+var photoAspect = 1;       /* width / height of loaded photo */
+var plotOffsetX = 0;       /* physical pixel offset for centered waveform */
+var plotActiveW = 0;       /* active plot width in physical pixels */
 
-let gammaLUT = new Uint8Array(256);
+/* FIX #4: High-res save multiplier for photo mode */
+var SAVE_MULT = 2;         /* Save at 2x DPR resolution in photo mode */
+
+var pxR=null, pxG=null, pxB=null, pxL=null;
+var densR=null, densG=null, densB=null;
+var persR=null, persG=null, persB=null;
+
+var gammaLUT = new Uint8Array(256);
 function buildGammaLUT(){
-  for(let i=0;i<256;i++){
+  for(var i=0;i<256;i++){
     gammaLUT[i] = Math.round(255 * Math.pow(i/255, GAMMA));
   }
 }
@@ -300,7 +308,6 @@ document.querySelectorAll('.stab').forEach(function(btn){
 function switchSource(){
   clearPers();
   if(source==='camera'){
-    AH = AH_CAMERA;
     pvWrap.style.display='block';
     photoWrap.style.display='none';
     document.getElementById('fps').textContent='';
@@ -331,9 +338,18 @@ document.getElementById('fileInput').addEventListener('change', function(){
   var url = URL.createObjectURL(this.files[0]);
   photoImg.onload = function(){
     photoLoaded=true;
+    /* FIX #3: capture photo aspect ratio */
+    var iw = photoImg.naturalWidth;
+    var ih = photoImg.naturalHeight;
+    if(ih > 0) photoAspect = iw / ih;
+    else photoAspect = 1;
+
     document.getElementById('photoDropzone').classList.add('hidden');
     photoImg.style.display='block';
     document.getElementById('changePhotoBtn').style.display='block';
+
+    /* Re-layout to recalculate AW/AH for new aspect ratio */
+    layout();
     clearPers();
     analyzePhoto();
   };
@@ -342,14 +358,15 @@ document.getElementById('fileInput').addEventListener('change', function(){
 
 function analyzePhoto(){
   if(!photoLoaded||W===0||H===0||AW<1||AH<1) return;
+
   ax.fillStyle='#000';
   ax.fillRect(0,0,AW,AH);
+
   var iw=photoImg.naturalWidth, ih=photoImg.naturalHeight;
   if(iw===0||ih===0) return;
-  var scale=Math.min(AW/iw, AH/ih);
-  var dw=iw*scale, dh=ih*scale;
-  var dx=(AW-dw)/2, dy=(AH-dh)/2;
-  ax.drawImage(photoImg, dx, dy, dw, dh);
+
+  /* Draw image filling AW×AH (aspect already matched in resizeScope) */
+  ax.drawImage(photoImg, 0, 0, AW, AH);
 
   var d=ax.getImageData(0,0,AW,AH).data;
   var total=AW*AH;
@@ -360,7 +377,7 @@ function analyzePhoto(){
   }
 
   densR.fill(0); densG.fill(0); densB.fill(0);
-  buildDensity();
+  buildDensityPhoto();
 
   var GAIN = GAIN_NUMER / AH;
   var steady = 1 / (1 - Math.min(DECAY, 0.995));
@@ -391,6 +408,21 @@ function saveWaveform(){
   flash.classList.add('flash');
   setTimeout(function(){ flash.classList.remove('flash'); }, 200);
 
+  /*
+   * FIX #4: High-resolution SAVE
+   * Camera mode: save at current W×H (DPR resolution) — same as before
+   * Photo mode: re-render at SAVE_MULT × W×H for much higher resolution
+   *   so pinch-zoom on the saved PNG stays sharp
+   */
+  if(source==='photo' && photoLoaded){
+    savePhotoHighRes();
+  } else {
+    saveCurrent();
+  }
+}
+
+/* Save at current canvas resolution (camera mode) */
+function saveCurrent(){
   var sc = document.getElementById('saveCanvas');
   var sx = sc.getContext('2d');
   sc.width = W; sc.height = H;
@@ -398,8 +430,145 @@ function saveWaveform(){
   sx.fillRect(0,0,W,H);
   sx.drawImage(gc, 0, 0);
   sx.drawImage(wc, 0, 0);
+  downloadCanvas(sc);
+}
 
-  sc.toBlob(function(blob){
+/* FIX #4: Re-render waveform at higher resolution for photo mode */
+function savePhotoHighRes(){
+  var SM = SAVE_MULT;
+  var sW = W * SM;
+  var sH = H * SM;
+  var spW = pW * SM;
+  var spH = pH * SM;
+  var ssPAD_T = sPAD_T * SM;
+  var ssPAD_B = sPAD_B * SM;
+  var ssPAD_L = sPAD_L * SM;
+  var ssPAD_R = sPAD_R * SM;
+
+  /* High-res analysis canvas */
+  var sAW = plotActiveW * SM;
+  var sAH = Math.max(Math.round(spH * 2), 2);
+  var sPlotOffsetX = plotOffsetX * SM;
+
+  /* Re-sample image at high res */
+  var hac = document.createElement('canvas');
+  hac.width = sAW; hac.height = sAH;
+  var hax = hac.getContext('2d', {willReadFrequently:true});
+  hax.drawImage(photoImg, 0, 0, sAW, sAH);
+
+  var d = hax.getImageData(0,0,sAW,sAH).data;
+  var total = sAW * sAH;
+  var sPxR = new Uint8Array(total);
+  var sPxG = new Uint8Array(total);
+  var sPxB = new Uint8Array(total);
+  var sPxL = new Uint8Array(total);
+  for(var i=0;i<total;i++){
+    var b=i*4;
+    sPxR[i]=d[b]; sPxG[i]=d[b+1]; sPxB[i]=d[b+2];
+    sPxL[i]=(d[b]*299+d[b+1]*587+d[b+2]*114+500)/1000|0;
+  }
+
+  /* Build density at high res */
+  var sz = sW * sH;
+  var sDensR = new Float32Array(sz);
+  var sDensG = new Float32Array(sz);
+  var sDensB = new Float32Array(sz);
+
+  function sAddSubpixel(outX, fy, cr, cg, cb){
+    var y0 = fy|0;
+    var y1 = y0+1;
+    var frac = fy-y0;
+    var w0 = 1.0-frac;
+    var w1 = frac;
+    if(y0>=0&&y0<sH){
+      var oi=y0*sW+outX;
+      sDensR[oi]+=cr*w0; sDensG[oi]+=cg*w0; sDensB[oi]+=cb*w0;
+    }
+    if(y1>=0&&y1<sH){
+      var oi2=y1*sW+outX;
+      sDensR[oi2]+=cr*w1; sDensG[oi2]+=cg*w1; sDensB[oi2]+=cb*w1;
+    }
+  }
+
+  for(var col=0; col<sAW; col++){
+    var outX = ssPAD_L + sPlotOffsetX + col;
+    if(outX<0||outX>=sW) continue;
+    for(var row=0; row<sAH; row++){
+      var idx = row*sAW+col;
+      if(mode==='luma'){
+        var v = sPxL[idx];
+        var fy = ssPAD_T+(1-v/255)*spH;
+        sAddSubpixel(outX, fy, 0.75, 1.0, 0.55);
+      } else if(mode==='rgb'){
+        var r=sPxR[idx], g=sPxG[idx], bl=sPxB[idx];
+        sAddSubpixel(outX, ssPAD_T+(1-r/255)*spH, 1.0, 0.0, 0.0);
+        sAddSubpixel(outX, ssPAD_T+(1-g/255)*spH, 0.0, 1.0, 0.0);
+        sAddSubpixel(outX, ssPAD_T+(1-bl/255)*spH, 0.0, 0.0, 1.0);
+      } else {
+        var r2=sPxR[idx], g2=sPxG[idx], bl2=sPxB[idx];
+        var v2=sPxL[idx];
+        var rn=r2/255, gn=g2/255, bn=bl2/255;
+        var fy2 = ssPAD_T+(1-v2/255)*spH;
+        sAddSubpixel(outX, fy2, rn, gn, bn);
+        if(CMIX > 0){
+          var fyR = ssPAD_T+(1-r2/255)*spH;
+          var fyG = ssPAD_T+(1-g2/255)*spH;
+          var fyB = ssPAD_T+(1-bl2/255)*spH;
+          var thr = 1.5*DPR*SM;
+          if(Math.abs(fyR-fy2) > thr) sAddSubpixel(outX, fyR, rn*CMIX, 0, 0);
+          if(Math.abs(fyG-fy2) > thr) sAddSubpixel(outX, fyG, 0, gn*CMIX, 0);
+          if(Math.abs(fyB-fy2) > thr) sAddSubpixel(outX, fyB, 0, 0, bn*CMIX);
+        }
+      }
+    }
+  }
+
+  /* Render to high-res image */
+  var GAIN = GAIN_NUMER / sAH;
+  var steady = 1 / (1 - Math.min(DECAY, 0.995));
+  var imgData = new ImageData(sW, sH);
+  var buf = imgData.data;
+  for(var i=0;i<sz;i++){
+    var r = sDensR[i]*GAIN*steady;
+    var g = sDensG[i]*GAIN*steady;
+    var bb = sDensB[i]*GAIN*steady;
+    var bi=i*4;
+    var ri = r>255?255: r<0?0: r|0;
+    var gi = g>255?255: g<0?0: g|0;
+    var bbi= bb>255?255: bb<0?0: bb|0;
+    buf[bi]  = gammaLUT[ri];
+    buf[bi+1]= gammaLUT[gi];
+    buf[bi+2]= gammaLUT[bbi];
+    buf[bi+3]= 255;
+  }
+
+  /* Compose: waveform first (putImageData replaces all pixels), then grid on top */
+  var sc = document.getElementById('saveCanvas');
+  var sx = sc.getContext('2d');
+  sc.width = sW; sc.height = sH;
+
+  /* Waveform data (putImageData replaces canvas content) */
+  sx.putImageData(imgData, 0, 0);
+
+  /* Grid lines on top of waveform */
+  sx.lineWidth = DPR * SM;
+  var gridVals = [0,25,50,75,100];
+  for(var gi2=0; gi2<gridVals.length; gi2++){
+    var v = gridVals[gi2];
+    var y = ssPAD_T+(1-v/100)*spH;
+    sx.strokeStyle = (v===0||v===100)?'rgba(255,255,255,.1)':'rgba(255,255,255,.05)';
+    sx.beginPath(); sx.moveTo(ssPAD_L,y); sx.lineTo(sW-ssPAD_R,y); sx.stroke();
+  }
+
+  downloadCanvas(sc);
+
+  /* Clean up */
+  sDensR = null; sDensG = null; sDensB = null;
+  sPxR = null; sPxG = null; sPxB = null; sPxL = null;
+}
+
+function downloadCanvas(canvas){
+  canvas.toBlob(function(blob){
     if(!blob) return;
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
@@ -464,14 +633,37 @@ function resizeScope(sw,sh){
   wc.width=W; wc.height=H;
   wc.style.width=cssW+'px'; wc.style.height=cssH+'px';
 
-  AW = pW;
-  /* Photo: AH = pH for 1:1 mapping (no banding)
-     Camera: AH = 240 for performance */
-  if(source==='photo'){
-    AH = Math.max(pH, 2);
+  /*
+   * FIX #1: Banding fix — photo AH = pH * 2 for high sample density
+   * FIX #3: Aspect ratio — fit photo aspect into pW × pH plot area
+   * Camera: AW = pW, AH = 240 (unchanged for performance)
+   */
+  if(source==='photo' && photoLoaded){
+    /* Fit photo aspect ratio within the pW × pH plot area */
+    var fitW, fitH;
+    if(photoAspect >= pW / pH){
+      /* Photo is wider or equal — fit to width */
+      fitW = pW;
+      fitH = Math.round(pW / photoAspect);
+    } else {
+      /* Photo is taller — fit to height */
+      fitH = pH;
+      fitW = Math.round(pH * photoAspect);
+    }
+    plotActiveW = fitW;
+    plotOffsetX = Math.round((pW - fitW) / 2);
+
+    AW = fitW;
+    /* FIX #1: AH = pH * 2 — enough samples for smooth subpixel interpolation */
+    AH = Math.max(Math.round(pH * 2), 2);
   } else {
+    /* Camera mode — unchanged */
+    plotActiveW = pW;
+    plotOffsetX = 0;
+    AW = pW;
     AH = AH_CAMERA;
   }
+
   ac.width=AW; ac.height=AH;
 
   var sz=W*H;
@@ -533,11 +725,59 @@ function addSubpixel(outX, fy, cr, cg, cb){
   }
 }
 
+/* Camera mode density: AW = pW, no horizontal offset */
 function buildDensity(){
   densR.fill(0); densG.fill(0); densB.fill(0);
 
   for(var col=0; col<AW; col++){
-    var outX = sPAD_L+col;
+    var outX = sPAD_L + col;
+    if(outX<0||outX>=W) continue;
+
+    for(var row=0; row<AH; row++){
+      var idx = row*AW+col;
+
+      if(mode==='luma'){
+        var v = pxL[idx];
+        var fy = sPAD_T+(1-v/255)*pH;
+        addSubpixel(outX, fy, 0.75, 1.0, 0.55);
+
+      } else if(mode==='rgb'){
+        var r=pxR[idx], g=pxG[idx], bl=pxB[idx];
+        addSubpixel(outX, sPAD_T+(1-r/255)*pH, 1.0, 0.0, 0.0);
+        addSubpixel(outX, sPAD_T+(1-g/255)*pH, 0.0, 1.0, 0.0);
+        addSubpixel(outX, sPAD_T+(1-bl/255)*pH, 0.0, 0.0, 1.0);
+
+      } else {
+        var r2=pxR[idx], g2=pxG[idx], bl2=pxB[idx];
+        var v2=pxL[idx];
+        var rn=r2/255, gn=g2/255, bn=bl2/255;
+
+        var fy2 = sPAD_T+(1-v2/255)*pH;
+        addSubpixel(outX, fy2, rn, gn, bn);
+
+        if(CMIX > 0){
+          var fyR = sPAD_T+(1-r2/255)*pH;
+          var fyG = sPAD_T+(1-g2/255)*pH;
+          var fyB = sPAD_T+(1-bl2/255)*pH;
+          var thr = 1.5*DPR;
+          if(Math.abs(fyR-fy2) > thr) addSubpixel(outX, fyR, rn*CMIX, 0, 0);
+          if(Math.abs(fyG-fy2) > thr) addSubpixel(outX, fyG, 0, gn*CMIX, 0);
+          if(Math.abs(fyB-fy2) > thr) addSubpixel(outX, fyB, 0, 0, bn*CMIX);
+        }
+      }
+    }
+  }
+}
+
+/*
+ * FIX #3: Photo mode density with aspect-aware horizontal offset
+ * The waveform is centered within the plot area, matching the photo's aspect ratio
+ */
+function buildDensityPhoto(){
+  densR.fill(0); densG.fill(0); densB.fill(0);
+
+  for(var col=0; col<AW; col++){
+    var outX = sPAD_L + plotOffsetX + col;
     if(outX<0||outX>=W) continue;
 
     for(var row=0; row<AH; row++){
