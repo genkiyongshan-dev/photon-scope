@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>WAVEFORM MONITOR</title>
+<title>PHOTON SCOPE</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
   *{margin:0;padding:0;box-sizing:border-box}
@@ -92,7 +92,6 @@
   .ftrL{font-size:7px;letter-spacing:.3em;color:rgba(255,255,255,.2)}
   .ftrR{margin-left:auto;font-size:7px;letter-spacing:.2em;color:rgba(255,255,255,.12)}
 
-  /* ── Controls (scrollable) ── */
   #controls{
     position:fixed;left:0;right:0;bottom:0;background:#111;
     border-top:1px solid rgba(255,255,255,.07);
@@ -117,8 +116,8 @@
 <body>
 
 <div id="startScreen">
-  <button id="startBtn">▶ START WAVEFORM</button>
-  <div class="sub">FCP · RGB OVERLAY WAVEFORM MONITOR</div>
+  <button id="startBtn">▶ START SCOPE</button>
+  <div class="sub">PHOTON SCOPE · RGB OVERLAY WAVEFORM</div>
 </div>
 
 <div id="sourceBar" style="display:flex">
@@ -180,16 +179,16 @@
     <div class="ctrl-row">
       <div class="ctrl-head">
         <span class="ctrl-name">STREAK</span>
-        <span class="ctrl-val" id="streakVal">8</span>
+        <span class="ctrl-val" id="streakVal">4</span>
       </div>
-      <input type="range" id="streakSlider" min="0" max="24" value="8" step="1">
+      <input type="range" id="streakSlider" min="0" max="16" value="4" step="1">
     </div>
     <div class="ctrl-row">
       <div class="ctrl-head">
         <span class="ctrl-name">SPREAD</span>
-        <span class="ctrl-val" id="spreadVal">2</span>
+        <span class="ctrl-val" id="spreadVal">1</span>
       </div>
-      <input type="range" id="spreadSlider" min="0" max="6" value="2" step="1">
+      <input type="range" id="spreadSlider" min="0" max="4" value="1" step="1">
     </div>
   </div>
 </div>
@@ -208,11 +207,12 @@ const gx = gc.getContext('2d');
 const wx = wc.getContext('2d');
 const ax = ac.getContext('2d',{willReadFrequently:true});
 
-const AH = 240;
+/* Higher analysis resolution for sharper waveforms */
+const AH = 360;
 let GAIN_NUMER = 200;
 let DECAY      = 0.75;
-let STREAK     = 8;    // vertical streak length (pixels downward from plot point)
-let SPREAD     = 2;    // horizontal gaussian spread radius
+let STREAK     = 4;
+let SPREAD     = 1;
 const PAD_T=8, PAD_B=22, PAD_L=34, PAD_R=4, HDR=26, TABH=36;
 
 let mode='rgb', source='camera';
@@ -223,7 +223,7 @@ let pxR, pxG, pxB, pxL;
 let densR, densG, densB;
 let persR, persG, persB;
 
-/* ── Gaussian kernel for horizontal spread ── */
+/* ── Horizontal spread kernel (narrow gaussian) ── */
 let spreadKernel = [];
 function buildSpreadKernel(){
   spreadKernel = [];
@@ -231,7 +231,7 @@ function buildSpreadKernel(){
     spreadKernel = [{off:0, w:1.0}];
     return;
   }
-  const sigma = SPREAD * 0.5;
+  const sigma = SPREAD * 0.35;  // tighter than before
   let sum = 0;
   for(let dx = -SPREAD; dx <= SPREAD; dx++){
     const w = Math.exp(-(dx*dx)/(2*sigma*sigma));
@@ -242,7 +242,7 @@ function buildSpreadKernel(){
 }
 buildSpreadKernel();
 
-/* ── Streak falloff (exponential decay downward) ── */
+/* ── Streak weights: sharp exponential decay downward, normalized ── */
 let streakWeights = [];
 function buildStreakWeights(){
   streakWeights = [];
@@ -250,11 +250,15 @@ function buildStreakWeights(){
     streakWeights = [1.0];
     return;
   }
-  // Exponential falloff: strong at top, fading downward
-  const tau = STREAK * 0.4;
+  const tau = Math.max(STREAK * 0.25, 0.5);  // very sharp falloff
+  let sum = 0;
   for(let dy = 0; dy <= STREAK; dy++){
-    streakWeights.push(Math.exp(-dy / tau));
+    const w = Math.exp(-dy / tau);
+    streakWeights.push(w);
+    sum += w;
   }
+  // Normalize so total energy = 1 (no brightness bloat from longer streaks)
+  for(let i=0;i<streakWeights.length;i++) streakWeights[i] /= sum;
 }
 buildStreakWeights();
 
@@ -353,7 +357,6 @@ function analyzePhoto(){
   densR.fill(0); densG.fill(0); densB.fill(0);
   buildDensity();
 
-  // Analytical steady-state: pers = dens * GAIN / (1 - DECAY)
   const GAIN = GAIN_NUMER / AH;
   const steady = 1 / (1 - Math.min(DECAY, 0.995));
   const sz = W*H;
@@ -438,17 +441,14 @@ function analyze(){
   }
 }
 
-/* ── Core: build density with streaks + spread ── */
+/* ── addPoint: streak down + spread horizontally ── */
 function addPoint(outX, baseY, cr, cg, cb){
-  // Vertical streak downward from baseY
   const sLen = streakWeights.length;
   const kLen = spreadKernel.length;
-
   for(let s=0; s<sLen; s++){
     const y = baseY + s;
     if(y<0||y>=H) continue;
     const sw = streakWeights[s];
-    // Horizontal spread
     for(let k=0; k<kLen; k++){
       const x = outX + spreadKernel[k].off;
       if(x<0||x>=W) continue;
@@ -486,10 +486,7 @@ function buildDensity(){
         addPoint(outX, yB, 0.0, 0.0, 1.0);
 
       } else {
-        /* COLOR mode — FCP style:
-           1. Primary: plot at luma Y with full pixel color + downward streak
-           2. Per-channel: plot R/G/B at their own Y positions with channel color
-              This creates the color separation visible in FCP */
+        /* COLOR mode — FCP style */
         const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
         const v=pxL[idx];
         const rn=r/255, gn=g/255, bn=bl/255;
@@ -498,13 +495,11 @@ function buildDensity(){
         const centerY = Math.round(PAD_T+(1-v/255)*pH);
         addPoint(outX, centerY, rn, gn, bn);
 
-        // Per-channel separation (30% weight for color spread)
+        // Per-channel color separation (30%)
+        const sub = 0.3;
         const yR=Math.round(PAD_T+(1-r/255)*pH);
         const yG=Math.round(PAD_T+(1-g/255)*pH);
         const yB=Math.round(PAD_T+(1-bl/255)*pH);
-
-        // Only add if significantly different from luma position
-        const sub = 0.3;
         if(Math.abs(yR-centerY) > 2) addPoint(outX, yR, rn*sub, 0, 0);
         if(Math.abs(yG-centerY) > 2) addPoint(outX, yG, 0, gn*sub, 0);
         if(Math.abs(yB-centerY) > 2) addPoint(outX, yB, 0, 0, bn*sub);
