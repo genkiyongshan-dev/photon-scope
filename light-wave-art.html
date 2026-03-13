@@ -99,7 +99,6 @@
   .ftrL{font-size:7px;letter-spacing:.3em;color:rgba(255,255,255,.2)}
   .ftrR{margin-left:auto;font-size:7px;letter-spacing:.2em;color:rgba(255,255,255,.12)}
 
-  /* Save flash feedback */
   #saveFlash{
     position:absolute;inset:0;background:rgba(255,255,255,.15);
     pointer-events:none;opacity:0;transition:opacity .3s;z-index:10;
@@ -160,7 +159,7 @@
   <div class="hdr">
     <span class="hdrTitle" id="hdrTitle">RGB OVERLAY</span>
     <div class="modes">
-      <button id="saveBtn">💾 SAVE</button>
+      <button id="saveBtn">SAVE</button>
       <button class="mb" data-m="luma">LUMA</button>
       <button class="mb on" data-m="rgb">RGB</button>
       <button class="mb" data-m="color">COLOR</button>
@@ -210,10 +209,11 @@
 </div>
 
 <canvas id="ac" style="display:none"></canvas>
-<!-- Offscreen canvas for compositing save image -->
 <canvas id="saveCanvas" style="display:none"></canvas>
 
 <script>
+try {
+
 const video    = document.getElementById('video');
 const photoImg = document.getElementById('photoImg');
 const photoWrap= document.getElementById('photoWrap');
@@ -228,7 +228,6 @@ const ax = ac.getContext('2d',{willReadFrequently:true});
 const DPR = window.devicePixelRatio || 1;
 
 const AH_CAMERA = 240;
-/* AH_PHOTO will be set dynamically to match pH (physical display height) */
 let AH = AH_CAMERA;
 
 let GAIN_NUMER = 160;
@@ -243,11 +242,11 @@ let lastT=performance.now();
 
 let W=0, H=0, pW=0, pH=0, AW=1;
 let cssW=0, cssH=0;
-let sPAD_T, sPAD_B, sPAD_L, sPAD_R;
+let sPAD_T=0, sPAD_B=0, sPAD_L=0, sPAD_R=0;
 
-let pxR, pxG, pxB, pxL;
-let densR, densG, densB;
-let persR, persG, persB;
+let pxR=null, pxG=null, pxB=null, pxL=null;
+let densR=null, densG=null, densB=null;
+let persR=null, persG=null, persB=null;
 
 let gammaLUT = new Uint8Array(256);
 function buildGammaLUT(){
@@ -289,9 +288,9 @@ function clearPers(){
 }
 
 // ── Source tabs ───────────────────────────────────────────
-document.querySelectorAll('.stab').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    document.querySelectorAll('.stab').forEach(b=>b.classList.remove('on'));
+document.querySelectorAll('.stab').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.stab').forEach(function(b){b.classList.remove('on');});
     btn.classList.add('on');
     source = btn.dataset.s;
     switchSource();
@@ -305,26 +304,32 @@ function switchSource(){
     pvWrap.style.display='block';
     photoWrap.style.display='none';
     document.getElementById('fps').textContent='';
-    resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
-    if(!running){running=true;requestAnimationFrame(loop);}
   } else {
     pvWrap.style.display='none';
     photoWrap.style.display='flex';
     running=false;
-    /* AH_PHOTO = pH so 1 analysis row = 1 physical display row → no banding */
-    resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
-    if(photoLoaded) analyzePhoto();
   }
   layout();
+  if(source==='camera' && !running){
+    running=true;
+    requestAnimationFrame(loop);
+  }
+  if(source==='photo' && photoLoaded){
+    analyzePhoto();
+  }
 }
 
 // ── File picker ───────────────────────────────────────────
-document.getElementById('openFileBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
-document.getElementById('changePhotoBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
+document.getElementById('openFileBtn').addEventListener('click',function(){
+  document.getElementById('fileInput').click();
+});
+document.getElementById('changePhotoBtn').addEventListener('click',function(){
+  document.getElementById('fileInput').click();
+});
 document.getElementById('fileInput').addEventListener('change', function(){
   if(!this.files||!this.files[0]) return;
-  const url = URL.createObjectURL(this.files[0]);
-  photoImg.onload = ()=>{
+  var url = URL.createObjectURL(this.files[0]);
+  photoImg.onload = function(){
     photoLoaded=true;
     document.getElementById('photoDropzone').classList.add('hidden');
     photoImg.style.display='block';
@@ -336,18 +341,20 @@ document.getElementById('fileInput').addEventListener('change', function(){
 });
 
 function analyzePhoto(){
-  if(!photoLoaded||W===0) return;
+  if(!photoLoaded||W===0||H===0||AW<1||AH<1) return;
   ax.fillStyle='#000';
   ax.fillRect(0,0,AW,AH);
-  const iw=photoImg.naturalWidth, ih=photoImg.naturalHeight;
-  const scale=Math.min(AW/iw, AH/ih);
-  const dw=iw*scale, dh=ih*scale;
-  const dx=(AW-dw)/2, dy=(AH-dh)/2;
+  var iw=photoImg.naturalWidth, ih=photoImg.naturalHeight;
+  if(iw===0||ih===0) return;
+  var scale=Math.min(AW/iw, AH/ih);
+  var dw=iw*scale, dh=ih*scale;
+  var dx=(AW-dw)/2, dy=(AH-dh)/2;
   ax.drawImage(photoImg, dx, dy, dw, dh);
 
-  const d=ax.getImageData(0,0,AW,AH).data;
-  for(let i=0;i<AW*AH;i++){
-    const b=i*4;
+  var d=ax.getImageData(0,0,AW,AH).data;
+  var total=AW*AH;
+  for(var i=0;i<total;i++){
+    var b=i*4;
     pxR[i]=d[b]; pxG[i]=d[b+1]; pxB[i]=d[b+2];
     pxL[i]=(d[b]*299+d[b+1]*587+d[b+2]*114+500)/1000|0;
   }
@@ -355,19 +362,19 @@ function analyzePhoto(){
   densR.fill(0); densG.fill(0); densB.fill(0);
   buildDensity();
 
-  const GAIN = GAIN_NUMER / AH;
-  const steady = 1 / (1 - Math.min(DECAY, 0.995));
-  const sz = W*H;
-  const imgData = new ImageData(W,H);
-  const buf = imgData.data;
-  for(let i=0;i<sz;i++){
-    const r = densR[i]*GAIN*steady;
-    const g = densG[i]*GAIN*steady;
-    const b = densB[i]*GAIN*steady;
-    const bi=i*4;
-    const ri = r>255?255: r<0?0: r|0;
-    const gi = g>255?255: g<0?0: g|0;
-    const bbi= b>255?255: b<0?0: b|0;
+  var GAIN = GAIN_NUMER / AH;
+  var steady = 1 / (1 - Math.min(DECAY, 0.995));
+  var sz = W*H;
+  var imgData = new ImageData(W,H);
+  var buf = imgData.data;
+  for(var i=0;i<sz;i++){
+    var r = densR[i]*GAIN*steady;
+    var g = densG[i]*GAIN*steady;
+    var bb = densB[i]*GAIN*steady;
+    var bi=i*4;
+    var ri = r>255?255: r<0?0: r|0;
+    var gi = g>255?255: g<0?0: g|0;
+    var bbi= bb>255?255: bb<0?0: bb|0;
     buf[bi]  = gammaLUT[ri];
     buf[bi+1]= gammaLUT[gi];
     buf[bi+2]= gammaLUT[bbi];
@@ -380,31 +387,25 @@ function analyzePhoto(){
 document.getElementById('saveBtn').addEventListener('click', saveWaveform);
 
 function saveWaveform(){
-  // Flash feedback
-  const flash = document.getElementById('saveFlash');
+  var flash = document.getElementById('saveFlash');
   flash.classList.add('flash');
-  setTimeout(()=> flash.classList.remove('flash'), 200);
+  setTimeout(function(){ flash.classList.remove('flash'); }, 200);
 
-  // Composite: grid canvas + waveform canvas
-  const sc = document.getElementById('saveCanvas');
-  const sx = sc.getContext('2d');
+  var sc = document.getElementById('saveCanvas');
+  var sx = sc.getContext('2d');
   sc.width = W; sc.height = H;
-  // Black background
   sx.fillStyle = '#0d0d0d';
   sx.fillRect(0,0,W,H);
-  // Draw grid
   sx.drawImage(gc, 0, 0);
-  // Draw waveform
   sx.drawImage(wc, 0, 0);
 
-  // Convert to blob and trigger download
   sc.toBlob(function(blob){
     if(!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
     a.href = url;
-    const ts = new Date();
-    const stamp = ts.getFullYear()+
+    var ts = new Date();
+    var stamp = ts.getFullYear()+
       String(ts.getMonth()+1).padStart(2,'0')+
       String(ts.getDate()).padStart(2,'0')+'_'+
       String(ts.getHours()).padStart(2,'0')+
@@ -420,20 +421,20 @@ function saveWaveform(){
 
 // ── Layout ────────────────────────────────────────────────
 function layout(){
-  const SW=window.innerWidth, SH=window.innerHeight;
-  const panelH=Math.floor(SW*9/16);
-  const pvTop=TABH;
+  var SW=window.innerWidth, SH=window.innerHeight;
+  var panelH=Math.floor(SW*9/16);
+  var pvTop=TABH;
 
   pvWrap.style.top=pvTop+'px';    pvWrap.style.height=panelH+'px';
   photoWrap.style.top=pvTop+'px'; photoWrap.style.height=panelH+'px';
 
-  const scopeTop=pvTop+panelH;
-  const scopeEl=document.getElementById('scopeWrap');
+  var scopeTop=pvTop+panelH;
+  var scopeEl=document.getElementById('scopeWrap');
   scopeEl.style.top=scopeTop+'px'; scopeEl.style.height=panelH+'px';
 
-  const ctrlTop=scopeTop+panelH;
-  const ctrlH=SH-ctrlTop;
-  const ctrl=document.getElementById('controls');
+  var ctrlTop=scopeTop+panelH;
+  var ctrlH=SH-ctrlTop;
+  var ctrl=document.getElementById('controls');
   ctrl.style.top=ctrlTop+'px';
   ctrl.style.height=Math.max(0,ctrlH)+'px';
 
@@ -455,46 +456,51 @@ function resizeScope(sw,sh){
   pW = W - sPAD_L - sPAD_R;
   pH = H - sPAD_T - sPAD_B;
 
+  if(pW<1) pW=1;
+  if(pH<1) pH=1;
+
   gc.width=W; gc.height=H;
   gc.style.width=cssW+'px'; gc.style.height=cssH+'px';
   wc.width=W; wc.height=H;
   wc.style.width=cssW+'px'; wc.style.height=cssH+'px';
 
   AW = pW;
-  /* For photo mode: AH = pH (1:1 mapping eliminates horizontal banding)
-     For camera mode: AH stays at 240 for performance */
+  /* Photo: AH = pH for 1:1 mapping (no banding)
+     Camera: AH = 240 for performance */
   if(source==='photo'){
-    AH = pH;
+    AH = Math.max(pH, 2);
   } else {
     AH = AH_CAMERA;
   }
   ac.width=AW; ac.height=AH;
 
-  const sz=W*H;
-  pxR=new Uint8Array(AW*AH); pxG=new Uint8Array(AW*AH);
-  pxB=new Uint8Array(AW*AH); pxL=new Uint8Array(AW*AH);
+  var sz=W*H;
+  var asz=AW*AH;
+  pxR=new Uint8Array(asz); pxG=new Uint8Array(asz);
+  pxB=new Uint8Array(asz); pxL=new Uint8Array(asz);
   densR=new Float32Array(sz); densG=new Float32Array(sz); densB=new Float32Array(sz);
   persR=new Float32Array(sz); persG=new Float32Array(sz); persB=new Float32Array(sz);
 
   buildYAxis(); drawGrid();
-  if(source==='photo'&&photoLoaded) analyzePhoto();
 }
 
 function buildYAxis(){
-  const el=document.getElementById('yAxis'); el.innerHTML='';
-  const cssPH = cssH - PAD_T - PAD_B;
-  [100,75,50,25,0].forEach(v=>{
-    const d=document.createElement('div');
+  var el=document.getElementById('yAxis'); el.innerHTML='';
+  var cssPH = cssH - PAD_T - PAD_B;
+  if(cssPH<=0) return;
+  [100,75,50,25,0].forEach(function(v){
+    var d=document.createElement('div');
     d.className='yL'; d.textContent=v;
     d.style.top=(PAD_T+(1-v/100)*cssPH)+'px';
     el.appendChild(d);
   });
 }
 function drawGrid(){
+  if(W<=0||H<=0) return;
   gx.clearRect(0,0,W,H);
   gx.lineWidth=DPR;
-  [0,25,50,75,100].forEach(v=>{
-    const y=sPAD_T+(1-v/100)*pH;
+  [0,25,50,75,100].forEach(function(v){
+    var y=sPAD_T+(1-v/100)*pH;
     gx.strokeStyle=(v===0||v===100)?'rgba(255,255,255,.1)':'rgba(255,255,255,.05)';
     gx.beginPath(); gx.moveTo(sPAD_L,y); gx.lineTo(W-sPAD_R,y); gx.stroke();
   });
@@ -502,66 +508,68 @@ function drawGrid(){
 
 function analyze(){
   ax.drawImage(video,0,0,AW,AH);
-  const d=ax.getImageData(0,0,AW,AH).data;
-  for(let i=0;i<AW*AH;i++){
-    const b=i*4;
+  var d=ax.getImageData(0,0,AW,AH).data;
+  var total=AW*AH;
+  for(var i=0;i<total;i++){
+    var b=i*4;
     pxR[i]=d[b]; pxG[i]=d[b+1]; pxB[i]=d[b+2];
     pxL[i]=(d[b]*299+d[b+1]*587+d[b+2]*114+500)/1000|0;
   }
 }
 
 function addSubpixel(outX, fy, cr, cg, cb){
-  const y0 = fy|0;
-  const y1 = y0+1;
-  const frac = fy-y0;
-  const w0 = 1.0-frac;
-  const w1 = frac;
+  var y0 = fy|0;
+  var y1 = y0+1;
+  var frac = fy-y0;
+  var w0 = 1.0-frac;
+  var w1 = frac;
   if(y0>=0&&y0<H){
-    const oi=y0*W+outX;
+    var oi=y0*W+outX;
     densR[oi]+=cr*w0; densG[oi]+=cg*w0; densB[oi]+=cb*w0;
   }
   if(y1>=0&&y1<H){
-    const oi=y1*W+outX;
-    densR[oi]+=cr*w1; densG[oi]+=cg*w1; densB[oi]+=cb*w1;
+    var oi2=y1*W+outX;
+    densR[oi2]+=cr*w1; densG[oi2]+=cg*w1; densB[oi2]+=cb*w1;
   }
 }
 
 function buildDensity(){
   densR.fill(0); densG.fill(0); densB.fill(0);
 
-  for(let col=0; col<AW; col++){
-    const outX = sPAD_L+col;
+  for(var col=0; col<AW; col++){
+    var outX = sPAD_L+col;
     if(outX<0||outX>=W) continue;
 
-    for(let row=0; row<AH; row++){
-      const idx = row*AW+col;
+    for(var row=0; row<AH; row++){
+      var idx = row*AW+col;
 
       if(mode==='luma'){
-        const v = pxL[idx];
-        const fy = sPAD_T+(1-v/255)*pH;
+        var v = pxL[idx];
+        var fy = sPAD_T+(1-v/255)*pH;
         addSubpixel(outX, fy, 0.75, 1.0, 0.55);
 
       } else if(mode==='rgb'){
-        const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
+        var r=pxR[idx], g=pxG[idx], bl=pxB[idx];
         addSubpixel(outX, sPAD_T+(1-r/255)*pH, 1.0, 0.0, 0.0);
         addSubpixel(outX, sPAD_T+(1-g/255)*pH, 0.0, 1.0, 0.0);
         addSubpixel(outX, sPAD_T+(1-bl/255)*pH, 0.0, 0.0, 1.0);
 
       } else {
-        const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
-        const v=pxL[idx];
-        const rn=r/255, gn=g/255, bn=bl/255;
+        var r2=pxR[idx], g2=pxG[idx], bl2=pxB[idx];
+        var v2=pxL[idx];
+        var rn=r2/255, gn=g2/255, bn=bl2/255;
 
-        const fy = sPAD_T+(1-v/255)*pH;
-        addSubpixel(outX, fy, rn, gn, bn);
+        var fy2 = sPAD_T+(1-v2/255)*pH;
+        addSubpixel(outX, fy2, rn, gn, bn);
 
         if(CMIX > 0){
-          const fyR = sPAD_T+(1-r/255)*pH;
-          const fyG = sPAD_T+(1-g/255)*pH;
-          const fyB = sPAD_T+(1-bl/255)*pH;
-          if(Math.abs(fyR-fy) > 1.5*DPR) addSubpixel(outX, fyR, rn*CMIX, 0, 0);
-          if(Math.abs(fyG-fy) > 1.5*DPR) addSubpixel(outX, fyG, 0, gn*CMIX, 0);
-          if(Math.abs(fyB-fy) > 1.5*DPR) addSubpixel(outX, fyB, 0, 0, bn*CMIX);
+          var fyR = sPAD_T+(1-r2/255)*pH;
+          var fyG = sPAD_T+(1-g2/255)*pH;
+          var fyB = sPAD_T+(1-bl2/255)*pH;
+          var thr = 1.5*DPR;
+          if(Math.abs(fyR-fy2) > thr) addSubpixel(outX, fyR, rn*CMIX, 0, 0);
+          if(Math.abs(fyG-fy2) > thr) addSubpixel(outX, fyG, 0, gn*CMIX, 0);
+          if(Math.abs(fyB-fy2) > thr) addSubpixel(outX, fyB, 0, 0, bn*CMIX);
         }
       }
     }
@@ -570,18 +578,18 @@ function buildDensity(){
 
 function drawScope(){
   if(!persR||W===0||H===0) return;
-  const GAIN=GAIN_NUMER/AH;
-  const sz=W*H;
-  const imgData=new ImageData(W,H);
-  const buf=imgData.data;
-  for(let i=0;i<sz;i++){
+  var GAIN=GAIN_NUMER/AH;
+  var sz=W*H;
+  var imgData=new ImageData(W,H);
+  var buf=imgData.data;
+  for(var i=0;i<sz;i++){
     persR[i]=persR[i]*DECAY+densR[i]*GAIN;
     persG[i]=persG[i]*DECAY+densG[i]*GAIN;
     persB[i]=persB[i]*DECAY+densB[i]*GAIN;
-    const b=i*4;
-    const ri = persR[i]>255?255: persR[i]<0?0: persR[i]|0;
-    const gi = persG[i]>255?255: persG[i]<0?0: persG[i]|0;
-    const bi = persB[i]>255?255: persB[i]<0?0: persB[i]|0;
+    var b=i*4;
+    var ri = persR[i]>255?255: persR[i]<0?0: persR[i]|0;
+    var gi = persG[i]>255?255: persG[i]<0?0: persG[i]|0;
+    var bi = persB[i]>255?255: persB[i]<0?0: persB[i]|0;
     buf[b]   = gammaLUT[ri];
     buf[b+1] = gammaLUT[gi];
     buf[b+2] = gammaLUT[bi];
@@ -590,46 +598,59 @@ function drawScope(){
   wx.putImageData(imgData,0,0);
 }
 
-document.querySelectorAll('.mb').forEach(btn=>{
-  btn.addEventListener('click',()=>{
-    document.querySelectorAll('.mb').forEach(b=>b.classList.remove('on'));
+document.querySelectorAll('.mb').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    document.querySelectorAll('.mb').forEach(function(b){b.classList.remove('on');});
     btn.classList.add('on');
     mode=btn.dataset.m;
-    document.getElementById('hdrTitle').textContent={luma:'LUMA',rgb:'RGB OVERLAY',color:'COLOR'}[mode];
+    document.getElementById('hdrTitle').textContent=
+      mode==='luma'?'LUMA': mode==='rgb'?'RGB OVERLAY':'COLOR';
     clearPers();
     if(source==='photo'&&photoLoaded) analyzePhoto();
   });
 });
 
-document.getElementById('startBtn').addEventListener('click', async()=>{
-  try{
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},
-      audio:false
-    });
+// ── Start ─────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', function(){
+  navigator.mediaDevices.getUserMedia({
+    video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},
+    audio:false
+  }).then(function(stream){
     video.srcObject=stream;
-    video.onloadedmetadata=()=>{
-      video.play().then(()=>{
+    video.onloadedmetadata=function(){
+      video.play().then(function(){
         document.getElementById('startScreen').style.display='none';
         layout();
         running=true;
         requestAnimationFrame(loop);
       });
     };
-  } catch(e){
+  }).catch(function(e){
     document.querySelector('.sub').textContent='カメラを許可してください';
-  }
+  });
 });
 
 window.addEventListener('resize', layout);
 
+/* Run layout once on load so UI elements are positioned */
+layout();
+
 function loop(){
   if(!running||source!=='camera') return;
-  const now=performance.now();
+  var now=performance.now();
   document.getElementById('fps').textContent=Math.round(1000/(now-lastT))+' FPS';
   lastT=now;
   if(video.readyState>=2){ analyze(); buildDensity(); drawScope(); }
   requestAnimationFrame(loop);
+}
+
+} catch(e) {
+  /* Show error on screen for debugging on mobile */
+  document.body.style.color='#f44';
+  document.body.style.padding='40px 20px';
+  document.body.style.fontSize='12px';
+  document.body.style.overflow='auto';
+  document.body.textContent='ERROR: '+e.message+'\n\n'+e.stack;
 }
 </script>
 </body>
