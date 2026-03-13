@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>WAVEFORM MONITOR</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#0d0d0d;overflow:hidden;font-family:'Space Mono',monospace}
+
+  #startScreen{
+    position:fixed;top:36px;left:0;right:0;bottom:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;z-index:99;background:#0d0d0d;gap:14px;
+  }
+  #startBtn{
+    background:transparent;border:1px solid rgba(255,255,255,.3);color:#fff;
+    font-family:'Space Mono',monospace;font-size:12px;letter-spacing:.35em;
+    padding:18px 44px;cursor:pointer;
+  }
+  .sub{font-size:8px;letter-spacing:.3em;color:rgba(255,255,255,.2)}
+
+  #sourceBar{
+    position:fixed;top:0;left:0;right:0;height:36px;
+    background:#161616;border-bottom:1px solid rgba(255,255,255,.08);
+    display:flex;align-items:center;z-index:20;
+  }
+  .stab{
+    flex:1;height:100%;background:transparent;border:none;
+    color:rgba(255,255,255,.28);font-family:'Space Mono',monospace;
+    font-size:9px;letter-spacing:.3em;cursor:pointer;text-transform:uppercase;
+    border-bottom:2px solid transparent;
+  }
+  .stab.on{color:rgba(255,255,255,.85);border-bottom:2px solid rgba(255,255,255,.5)}
+
+  #pvWrap{position:fixed;left:0;right:0;background:#000;overflow:hidden}
+  #video{width:100%;height:100%;object-fit:cover;display:block}
+
+  #photoWrap{
+    position:fixed;left:0;right:0;background:#000;overflow:hidden;
+    display:none;align-items:center;justify-content:center;
+  }
+  #photoImg{max-width:100%;max-height:100%;object-fit:contain;display:block}
+  #photoDropzone{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:8px;cursor:pointer;
+  }
+  #photoDropzone.hidden{display:none}
+  #fileInput{display:none}
+  .dropIcon{font-size:28px;opacity:.35}
+  .dropLabel{font-size:8px;letter-spacing:.3em;color:rgba(255,255,255,.3)}
+  .dropBtn{
+    margin-top:4px;background:transparent;border:1px solid rgba(255,255,255,.2);
+    color:rgba(255,255,255,.5);font-family:'Space Mono',monospace;
+    font-size:8px;letter-spacing:.25em;padding:8px 20px;cursor:pointer;
+  }
+
+  .pvLabel{position:absolute;top:8px;left:14px;font-size:8px;letter-spacing:.3em;color:rgba(255,255,255,.35)}
+  .rec{position:absolute;top:11px;left:8px;width:5px;height:5px;border-radius:50%;
+    background:#f02020;animation:blink 1.4s ease-in-out infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.1}}
+
+  #changePhotoBtn{
+    position:absolute;top:8px;right:8px;
+    background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.2);
+    color:rgba(255,255,255,.6);font-family:'Space Mono',monospace;
+    font-size:7px;letter-spacing:.2em;padding:4px 10px;cursor:pointer;display:none;
+  }
+
+  #scopeWrap{position:fixed;left:0;right:0;background:#0d0d0d;overflow:hidden}
+  .hdr{
+    position:absolute;top:0;left:0;right:0;height:26px;
+    background:#1a1a1a;border-bottom:1px solid rgba(255,255,255,.08);
+    display:flex;align-items:center;padding:0 10px;z-index:5;
+  }
+  .hdrTitle{font-size:8px;letter-spacing:.28em;color:rgba(255,255,255,.5)}
+  .modes{margin-left:auto;display:flex;gap:4px}
+  .mb{
+    background:transparent;border:none;color:rgba(255,255,255,.25);
+    font-family:'Space Mono',monospace;font-size:8px;letter-spacing:.28em;
+    cursor:pointer;padding:3px 8px;text-transform:uppercase;border-radius:2px;
+  }
+  .mb.on{color:rgba(255,255,255,.9);background:rgba(255,255,255,.1)}
+  #gc,#wc{position:absolute;top:26px;left:0}
+  .yAxis{position:absolute;top:26px;left:0;width:34px;pointer-events:none;z-index:4}
+  .yL{position:absolute;right:5px;font-size:7px;color:rgba(255,255,255,.3);transform:translateY(-50%)}
+  .ftr{
+    position:absolute;bottom:0;left:0;right:0;height:18px;
+    display:flex;align-items:center;padding:0 10px;
+    border-top:1px solid rgba(255,255,255,.05);z-index:4;
+  }
+  .ftrL{font-size:7px;letter-spacing:.3em;color:rgba(255,255,255,.2)}
+  .ftrR{margin-left:auto;font-size:7px;letter-spacing:.2em;color:rgba(255,255,255,.12)}
+
+  /* ── Controls (scrollable) ── */
+  #controls{
+    position:fixed;left:0;right:0;bottom:0;background:#111;
+    border-top:1px solid rgba(255,255,255,.07);
+    overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding:10px 24px 20px;
+  }
+  .ctrl-grid{display:flex;flex-wrap:wrap;gap:8px 16px}
+  .ctrl-row{flex:1 1 calc(50% - 8px);min-width:120px;display:flex;flex-direction:column;gap:3px}
+  .ctrl-head{display:flex;justify-content:space-between;align-items:baseline}
+  .ctrl-name{font-size:7px;letter-spacing:.25em;color:rgba(255,255,255,.35)}
+  .ctrl-val{font-size:11px;font-weight:700;letter-spacing:.05em;color:rgba(255,255,255,.7)}
+  input[type=range]{
+    width:100%;-webkit-appearance:none;appearance:none;
+    height:2px;background:rgba(255,255,255,.15);border-radius:2px;outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+    background:#fff;cursor:pointer;box-shadow:0 0 6px rgba(255,255,255,.2);
+  }
+</style>
+</head>
+<body>
+
+<div id="startScreen">
+  <button id="startBtn">▶ START WAVEFORM</button>
+  <div class="sub">FCP · RGB OVERLAY WAVEFORM MONITOR</div>
+</div>
+
+<div id="sourceBar" style="display:flex">
+  <button class="stab on" data-s="camera">◉ CAMERA</button>
+  <button class="stab" data-s="photo">⊞ PHOTO</button>
+</div>
+
+<div id="pvWrap">
+  <video id="video" autoplay playsinline muted></video>
+  <div class="rec"></div>
+  <div class="pvLabel">CAMERA INPUT</div>
+</div>
+
+<div id="photoWrap">
+  <img id="photoImg" style="display:none">
+  <div id="photoDropzone">
+    <div class="dropIcon">⊞</div>
+    <div class="dropLabel">PHOTO ANALYSIS</div>
+    <button class="dropBtn" id="openFileBtn">SELECT IMAGE</button>
+  </div>
+  <button id="changePhotoBtn">CHANGE IMAGE</button>
+  <input type="file" id="fileInput" accept="image/*">
+</div>
+
+<div id="scopeWrap">
+  <div class="hdr">
+    <span class="hdrTitle" id="hdrTitle">RGB OVERLAY</span>
+    <div class="modes">
+      <button class="mb" data-m="luma">LUMA</button>
+      <button class="mb on" data-m="rgb">RGB</button>
+      <button class="mb" data-m="color">COLOR</button>
+    </div>
+  </div>
+  <canvas id="gc"></canvas>
+  <canvas id="wc"></canvas>
+  <div class="yAxis" id="yAxis"></div>
+  <div class="ftr">
+    <span class="ftrL">Rec. 709</span>
+    <span class="ftrR" id="fps"></span>
+  </div>
+</div>
+
+<div id="controls">
+  <div class="ctrl-grid">
+    <div class="ctrl-row">
+      <div class="ctrl-head">
+        <span class="ctrl-name">GAIN</span>
+        <span class="ctrl-val" id="gainVal">200</span>
+      </div>
+      <input type="range" id="gainSlider" min="20" max="800" value="200" step="5">
+    </div>
+    <div class="ctrl-row">
+      <div class="ctrl-head">
+        <span class="ctrl-name">DECAY</span>
+        <span class="ctrl-val" id="decayVal">0.75</span>
+      </div>
+      <input type="range" id="decaySlider" min="0" max="97" value="75" step="1">
+    </div>
+    <div class="ctrl-row">
+      <div class="ctrl-head">
+        <span class="ctrl-name">STREAK</span>
+        <span class="ctrl-val" id="streakVal">8</span>
+      </div>
+      <input type="range" id="streakSlider" min="0" max="24" value="8" step="1">
+    </div>
+    <div class="ctrl-row">
+      <div class="ctrl-head">
+        <span class="ctrl-name">SPREAD</span>
+        <span class="ctrl-val" id="spreadVal">2</span>
+      </div>
+      <input type="range" id="spreadSlider" min="0" max="6" value="2" step="1">
+    </div>
+  </div>
+</div>
+
+<canvas id="ac" style="display:none"></canvas>
+
+<script>
+const video    = document.getElementById('video');
+const photoImg = document.getElementById('photoImg');
+const photoWrap= document.getElementById('photoWrap');
+const pvWrap   = document.getElementById('pvWrap');
+const ac = document.getElementById('ac');
+const gc = document.getElementById('gc');
+const wc = document.getElementById('wc');
+const gx = gc.getContext('2d');
+const wx = wc.getContext('2d');
+const ax = ac.getContext('2d',{willReadFrequently:true});
+
+const AH = 240;
+let GAIN_NUMER = 200;
+let DECAY      = 0.75;
+let STREAK     = 8;    // vertical streak length (pixels downward from plot point)
+let SPREAD     = 2;    // horizontal gaussian spread radius
+const PAD_T=8, PAD_B=22, PAD_L=34, PAD_R=4, HDR=26, TABH=36;
+
+let mode='rgb', source='camera';
+let running=false, photoLoaded=false;
+let lastT=performance.now();
+let W=0, H=0, pW=0, pH=0, AW=1;
+let pxR, pxG, pxB, pxL;
+let densR, densG, densB;
+let persR, persG, persB;
+
+/* ── Gaussian kernel for horizontal spread ── */
+let spreadKernel = [];
+function buildSpreadKernel(){
+  spreadKernel = [];
+  if(SPREAD === 0){
+    spreadKernel = [{off:0, w:1.0}];
+    return;
+  }
+  const sigma = SPREAD * 0.5;
+  let sum = 0;
+  for(let dx = -SPREAD; dx <= SPREAD; dx++){
+    const w = Math.exp(-(dx*dx)/(2*sigma*sigma));
+    spreadKernel.push({off:dx, w:w});
+    sum += w;
+  }
+  for(let i=0;i<spreadKernel.length;i++) spreadKernel[i].w /= sum;
+}
+buildSpreadKernel();
+
+/* ── Streak falloff (exponential decay downward) ── */
+let streakWeights = [];
+function buildStreakWeights(){
+  streakWeights = [];
+  if(STREAK === 0){
+    streakWeights = [1.0];
+    return;
+  }
+  // Exponential falloff: strong at top, fading downward
+  const tau = STREAK * 0.4;
+  for(let dy = 0; dy <= STREAK; dy++){
+    streakWeights.push(Math.exp(-dy / tau));
+  }
+}
+buildStreakWeights();
+
+// ── Sliders ───────────────────────────────────────────────
+document.getElementById('gainSlider').addEventListener('input', function(){
+  GAIN_NUMER = +this.value;
+  document.getElementById('gainVal').textContent = this.value;
+  clearPers();
+  if(source==='photo'&&photoLoaded) analyzePhoto();
+});
+document.getElementById('decaySlider').addEventListener('input', function(){
+  DECAY = this.value/100;
+  document.getElementById('decayVal').textContent = DECAY.toFixed(2);
+  clearPers();
+  if(source==='photo'&&photoLoaded) analyzePhoto();
+});
+document.getElementById('streakSlider').addEventListener('input', function(){
+  STREAK = +this.value;
+  document.getElementById('streakVal').textContent = this.value;
+  buildStreakWeights();
+  clearPers();
+  if(source==='photo'&&photoLoaded) analyzePhoto();
+});
+document.getElementById('spreadSlider').addEventListener('input', function(){
+  SPREAD = +this.value;
+  document.getElementById('spreadVal').textContent = this.value;
+  buildSpreadKernel();
+  clearPers();
+  if(source==='photo'&&photoLoaded) analyzePhoto();
+});
+
+function clearPers(){
+  if(persR){ persR.fill(0); persG.fill(0); persB.fill(0); }
+}
+
+// ── Source tabs ───────────────────────────────────────────
+document.querySelectorAll('.stab').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.stab').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    source = btn.dataset.s;
+    switchSource();
+  });
+});
+
+function switchSource(){
+  clearPers();
+  if(source==='camera'){
+    pvWrap.style.display='block';
+    photoWrap.style.display='none';
+    document.getElementById('fps').textContent='';
+    if(!running){running=true;requestAnimationFrame(loop);}
+  } else {
+    pvWrap.style.display='none';
+    photoWrap.style.display='flex';
+    running=false;
+    if(photoLoaded) analyzePhoto();
+  }
+  layout();
+}
+
+// ── File picker ───────────────────────────────────────────
+document.getElementById('openFileBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
+document.getElementById('changePhotoBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
+document.getElementById('fileInput').addEventListener('change', function(){
+  if(!this.files||!this.files[0]) return;
+  const url = URL.createObjectURL(this.files[0]);
+  photoImg.onload = ()=>{
+    photoLoaded=true;
+    document.getElementById('photoDropzone').classList.add('hidden');
+    photoImg.style.display='block';
+    document.getElementById('changePhotoBtn').style.display='block';
+    clearPers();
+    analyzePhoto();
+  };
+  photoImg.src = url;
+});
+
+function analyzePhoto(){
+  if(!photoLoaded||W===0) return;
+  ax.fillStyle='#000';
+  ax.fillRect(0,0,AW,AH);
+  const iw=photoImg.naturalWidth, ih=photoImg.naturalHeight;
+  const scale=Math.min(AW/iw, AH/ih);
+  const dw=iw*scale, dh=ih*scale;
+  const dx=(AW-dw)/2, dy=(AH-dh)/2;
+  ax.drawImage(photoImg, dx, dy, dw, dh);
+
+  const d=ax.getImageData(0,0,AW,AH).data;
+  for(let i=0;i<AW*AH;i++){
+    const b=i*4;
+    pxR[i]=d[b]; pxG[i]=d[b+1]; pxB[i]=d[b+2];
+    pxL[i]=(d[b]*299+d[b+1]*587+d[b+2]*114+500)/1000|0;
+  }
+
+  densR.fill(0); densG.fill(0); densB.fill(0);
+  buildDensity();
+
+  // Analytical steady-state: pers = dens * GAIN / (1 - DECAY)
+  const GAIN = GAIN_NUMER / AH;
+  const steady = 1 / (1 - Math.min(DECAY, 0.995));
+  const sz = W*H;
+  const imgData = new ImageData(W,H);
+  const buf = imgData.data;
+  for(let i=0;i<sz;i++){
+    const r = densR[i]*GAIN*steady;
+    const g = densG[i]*GAIN*steady;
+    const b = densB[i]*GAIN*steady;
+    const bi=i*4;
+    buf[bi]  = r>255?255:r;
+    buf[bi+1]= g>255?255:g;
+    buf[bi+2]= b>255?255:b;
+    buf[bi+3]= 255;
+  }
+  wx.putImageData(imgData,0,0);
+}
+
+// ── Layout ────────────────────────────────────────────────
+function layout(){
+  const SW=window.innerWidth, SH=window.innerHeight;
+  const panelH=Math.floor(SW*9/16);
+  const pvTop=TABH;
+
+  pvWrap.style.top=pvTop+'px';    pvWrap.style.height=panelH+'px';
+  photoWrap.style.top=pvTop+'px'; photoWrap.style.height=panelH+'px';
+
+  const scopeTop=pvTop+panelH;
+  const scopeEl=document.getElementById('scopeWrap');
+  scopeEl.style.top=scopeTop+'px'; scopeEl.style.height=panelH+'px';
+
+  const ctrlTop=scopeTop+panelH;
+  const ctrlH=SH-ctrlTop;
+  const ctrl=document.getElementById('controls');
+  ctrl.style.top=ctrlTop+'px';
+  ctrl.style.height=Math.max(0,ctrlH)+'px';
+
+  resizeScope(SW,panelH);
+}
+
+function resizeScope(sw,sh){
+  W=sw; H=sh-HDR;
+  if(W<=0||H<=0) return;
+  pW=W-PAD_L-PAD_R; pH=H-PAD_T-PAD_B;
+  gc.width=W; gc.height=H;
+  wc.width=W; wc.height=H;
+  AW=pW; ac.width=AW; ac.height=AH;
+  const sz=W*H;
+  pxR=new Uint8Array(AW*AH); pxG=new Uint8Array(AW*AH);
+  pxB=new Uint8Array(AW*AH); pxL=new Uint8Array(AW*AH);
+  densR=new Float32Array(sz); densG=new Float32Array(sz); densB=new Float32Array(sz);
+  persR=new Float32Array(sz); persG=new Float32Array(sz); persB=new Float32Array(sz);
+  buildYAxis(); drawGrid();
+  if(source==='photo'&&photoLoaded) analyzePhoto();
+}
+
+function buildYAxis(){
+  const el=document.getElementById('yAxis'); el.innerHTML='';
+  [100,75,50,25,0].forEach(v=>{
+    const d=document.createElement('div');
+    d.className='yL'; d.textContent=v;
+    d.style.top=(PAD_T+(1-v/100)*pH)+'px';
+    el.appendChild(d);
+  });
+}
+function drawGrid(){
+  gx.clearRect(0,0,W,H); gx.lineWidth=1;
+  [0,25,50,75,100].forEach(v=>{
+    const y=PAD_T+(1-v/100)*pH;
+    gx.strokeStyle=(v===0||v===100)?'rgba(255,255,255,.1)':'rgba(255,255,255,.05)';
+    gx.beginPath(); gx.moveTo(PAD_L,y); gx.lineTo(W-PAD_R,y); gx.stroke();
+  });
+}
+
+function analyze(){
+  ax.drawImage(video,0,0,AW,AH);
+  const d=ax.getImageData(0,0,AW,AH).data;
+  for(let i=0;i<AW*AH;i++){
+    const b=i*4;
+    pxR[i]=d[b]; pxG[i]=d[b+1]; pxB[i]=d[b+2];
+    pxL[i]=(d[b]*299+d[b+1]*587+d[b+2]*114+500)/1000|0;
+  }
+}
+
+/* ── Core: build density with streaks + spread ── */
+function addPoint(outX, baseY, cr, cg, cb){
+  // Vertical streak downward from baseY
+  const sLen = streakWeights.length;
+  const kLen = spreadKernel.length;
+
+  for(let s=0; s<sLen; s++){
+    const y = baseY + s;
+    if(y<0||y>=H) continue;
+    const sw = streakWeights[s];
+    // Horizontal spread
+    for(let k=0; k<kLen; k++){
+      const x = outX + spreadKernel[k].off;
+      if(x<0||x>=W) continue;
+      const w = sw * spreadKernel[k].w;
+      const oi = y*W+x;
+      densR[oi] += cr*w;
+      densG[oi] += cg*w;
+      densB[oi] += cb*w;
+    }
+  }
+}
+
+function buildDensity(){
+  densR.fill(0); densG.fill(0); densB.fill(0);
+
+  for(let col=0; col<AW; col++){
+    const outX = PAD_L+col;
+    if(outX<0||outX>=W) continue;
+
+    for(let row=0; row<AH; row++){
+      const idx = row*AW+col;
+
+      if(mode==='luma'){
+        const v = pxL[idx];
+        const centerY = Math.round(PAD_T+(1-v/255)*pH);
+        addPoint(outX, centerY, 0.75, 1.0, 0.55);
+
+      } else if(mode==='rgb'){
+        const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
+        const yR=Math.round(PAD_T+(1-r/255)*pH);
+        const yG=Math.round(PAD_T+(1-g/255)*pH);
+        const yB=Math.round(PAD_T+(1-bl/255)*pH);
+        addPoint(outX, yR, 1.0, 0.0, 0.0);
+        addPoint(outX, yG, 0.0, 1.0, 0.0);
+        addPoint(outX, yB, 0.0, 0.0, 1.0);
+
+      } else {
+        /* COLOR mode — FCP style:
+           1. Primary: plot at luma Y with full pixel color + downward streak
+           2. Per-channel: plot R/G/B at their own Y positions with channel color
+              This creates the color separation visible in FCP */
+        const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
+        const v=pxL[idx];
+        const rn=r/255, gn=g/255, bn=bl/255;
+
+        // Primary: luma position with pixel color
+        const centerY = Math.round(PAD_T+(1-v/255)*pH);
+        addPoint(outX, centerY, rn, gn, bn);
+
+        // Per-channel separation (30% weight for color spread)
+        const yR=Math.round(PAD_T+(1-r/255)*pH);
+        const yG=Math.round(PAD_T+(1-g/255)*pH);
+        const yB=Math.round(PAD_T+(1-bl/255)*pH);
+
+        // Only add if significantly different from luma position
+        const sub = 0.3;
+        if(Math.abs(yR-centerY) > 2) addPoint(outX, yR, rn*sub, 0, 0);
+        if(Math.abs(yG-centerY) > 2) addPoint(outX, yG, 0, gn*sub, 0);
+        if(Math.abs(yB-centerY) > 2) addPoint(outX, yB, 0, 0, bn*sub);
+      }
+    }
+  }
+}
+
+function drawScope(){
+  if(!persR||W===0||H===0) return;
+  const GAIN=GAIN_NUMER/AH;
+  const sz=W*H;
+  const imgData=new ImageData(W,H);
+  const buf=imgData.data;
+  for(let i=0;i<sz;i++){
+    persR[i]=persR[i]*DECAY+densR[i]*GAIN;
+    persG[i]=persG[i]*DECAY+densG[i]*GAIN;
+    persB[i]=persB[i]*DECAY+densB[i]*GAIN;
+    const b=i*4;
+    buf[b]  =persR[i]>255?255:persR[i];
+    buf[b+1]=persG[i]>255?255:persG[i];
+    buf[b+2]=persB[i]>255?255:persB[i];
+    buf[b+3]=255;
+  }
+  wx.putImageData(imgData,0,0);
+}
+
+document.querySelectorAll('.mb').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.mb').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on');
+    mode=btn.dataset.m;
+    document.getElementById('hdrTitle').textContent={luma:'LUMA',rgb:'RGB OVERLAY',color:'COLOR'}[mode];
+    clearPers();
+    if(source==='photo'&&photoLoaded) analyzePhoto();
+  });
+});
+
+// ── Start ─────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', async()=>{
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},
+      audio:false
+    });
+    video.srcObject=stream;
+    video.onloadedmetadata=()=>{
+      video.play().then(()=>{
+        document.getElementById('startScreen').style.display='none';
+        layout();
+        running=true;
+        requestAnimationFrame(loop);
+      });
+    };
+  } catch(e){
+    document.querySelector('.sub').textContent='カメラを許可してください';
+  }
+});
+
+window.addEventListener('resize', layout);
+
+function loop(){
+  if(!running||source!=='camera') return;
+  const now=performance.now();
+  document.getElementById('fps').textContent=Math.round(1000/(now-lastT))+' FPS';
+  lastT=now;
+  if(video.readyState>=2){ analyze(); buildDensity(); drawScope(); }
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
