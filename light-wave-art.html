@@ -165,30 +165,30 @@
     <div class="ctrl-row">
       <div class="ctrl-head">
         <span class="ctrl-name">GAIN</span>
-        <span class="ctrl-val" id="gainVal">200</span>
+        <span class="ctrl-val" id="gainVal">160</span>
       </div>
-      <input type="range" id="gainSlider" min="20" max="800" value="200" step="5">
+      <input type="range" id="gainSlider" min="20" max="600" value="160" step="5">
     </div>
     <div class="ctrl-row">
       <div class="ctrl-head">
         <span class="ctrl-name">DECAY</span>
-        <span class="ctrl-val" id="decayVal">0.75</span>
+        <span class="ctrl-val" id="decayVal">0.72</span>
       </div>
-      <input type="range" id="decaySlider" min="0" max="97" value="75" step="1">
+      <input type="range" id="decaySlider" min="0" max="97" value="72" step="1">
     </div>
     <div class="ctrl-row">
       <div class="ctrl-head">
-        <span class="ctrl-name">STREAK</span>
-        <span class="ctrl-val" id="streakVal">4</span>
+        <span class="ctrl-name">DETAIL</span>
+        <span class="ctrl-val" id="detailVal">HIGH</span>
       </div>
-      <input type="range" id="streakSlider" min="0" max="16" value="4" step="1">
+      <input type="range" id="detailSlider" min="0" max="2" value="2" step="1">
     </div>
     <div class="ctrl-row">
       <div class="ctrl-head">
-        <span class="ctrl-name">SPREAD</span>
-        <span class="ctrl-val" id="spreadVal">1</span>
+        <span class="ctrl-name">COLOR MIX</span>
+        <span class="ctrl-val" id="cmixVal">0.30</span>
       </div>
-      <input type="range" id="spreadSlider" min="0" max="4" value="1" step="1">
+      <input type="range" id="cmixSlider" min="0" max="60" value="30" step="5">
     </div>
   </div>
 </div>
@@ -207,12 +207,12 @@ const gx = gc.getContext('2d');
 const wx = wc.getContext('2d');
 const ax = ac.getContext('2d',{willReadFrequently:true});
 
-/* Higher analysis resolution for sharper waveforms */
-const AH = 360;
-let GAIN_NUMER = 200;
-let DECAY      = 0.75;
-let STREAK     = 4;
-let SPREAD     = 1;
+/* Analysis heights per DETAIL level: LOW=240, MED=360, HIGH=480 */
+const AH_LEVELS = [240, 360, 480];
+let AH = 480;
+let GAIN_NUMER = 160;
+let DECAY      = 0.72;
+let CMIX       = 0.30;  // COLOR mode: per-channel separation weight
 const PAD_T=8, PAD_B=22, PAD_L=34, PAD_R=4, HDR=26, TABH=36;
 
 let mode='rgb', source='camera';
@@ -222,45 +222,6 @@ let W=0, H=0, pW=0, pH=0, AW=1;
 let pxR, pxG, pxB, pxL;
 let densR, densG, densB;
 let persR, persG, persB;
-
-/* ── Horizontal spread kernel (narrow gaussian) ── */
-let spreadKernel = [];
-function buildSpreadKernel(){
-  spreadKernel = [];
-  if(SPREAD === 0){
-    spreadKernel = [{off:0, w:1.0}];
-    return;
-  }
-  const sigma = SPREAD * 0.35;  // tighter than before
-  let sum = 0;
-  for(let dx = -SPREAD; dx <= SPREAD; dx++){
-    const w = Math.exp(-(dx*dx)/(2*sigma*sigma));
-    spreadKernel.push({off:dx, w:w});
-    sum += w;
-  }
-  for(let i=0;i<spreadKernel.length;i++) spreadKernel[i].w /= sum;
-}
-buildSpreadKernel();
-
-/* ── Streak weights: sharp exponential decay downward, normalized ── */
-let streakWeights = [];
-function buildStreakWeights(){
-  streakWeights = [];
-  if(STREAK === 0){
-    streakWeights = [1.0];
-    return;
-  }
-  const tau = Math.max(STREAK * 0.25, 0.5);  // very sharp falloff
-  let sum = 0;
-  for(let dy = 0; dy <= STREAK; dy++){
-    const w = Math.exp(-dy / tau);
-    streakWeights.push(w);
-    sum += w;
-  }
-  // Normalize so total energy = 1 (no brightness bloat from longer streaks)
-  for(let i=0;i<streakWeights.length;i++) streakWeights[i] /= sum;
-}
-buildStreakWeights();
 
 // ── Sliders ───────────────────────────────────────────────
 document.getElementById('gainSlider').addEventListener('input', function(){
@@ -275,17 +236,17 @@ document.getElementById('decaySlider').addEventListener('input', function(){
   clearPers();
   if(source==='photo'&&photoLoaded) analyzePhoto();
 });
-document.getElementById('streakSlider').addEventListener('input', function(){
-  STREAK = +this.value;
-  document.getElementById('streakVal').textContent = this.value;
-  buildStreakWeights();
-  clearPers();
-  if(source==='photo'&&photoLoaded) analyzePhoto();
+document.getElementById('detailSlider').addEventListener('input', function(){
+  const lvl = +this.value;
+  const labels = ['LOW','MED','HIGH'];
+  document.getElementById('detailVal').textContent = labels[lvl];
+  AH = AH_LEVELS[lvl];
+  // Rebuild all buffers
+  resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
 });
-document.getElementById('spreadSlider').addEventListener('input', function(){
-  SPREAD = +this.value;
-  document.getElementById('spreadVal').textContent = this.value;
-  buildSpreadKernel();
+document.getElementById('cmixSlider').addEventListener('input', function(){
+  CMIX = this.value/100;
+  document.getElementById('cmixVal').textContent = CMIX.toFixed(2);
   clearPers();
   if(source==='photo'&&photoLoaded) analyzePhoto();
 });
@@ -357,6 +318,7 @@ function analyzePhoto(){
   densR.fill(0); densG.fill(0); densB.fill(0);
   buildDensity();
 
+  // Analytical steady-state
   const GAIN = GAIN_NUMER / AH;
   const steady = 1 / (1 - Math.min(DECAY, 0.995));
   const sz = W*H;
@@ -441,26 +403,7 @@ function analyze(){
   }
 }
 
-/* ── addPoint: streak down + spread horizontally ── */
-function addPoint(outX, baseY, cr, cg, cb){
-  const sLen = streakWeights.length;
-  const kLen = spreadKernel.length;
-  for(let s=0; s<sLen; s++){
-    const y = baseY + s;
-    if(y<0||y>=H) continue;
-    const sw = streakWeights[s];
-    for(let k=0; k<kLen; k++){
-      const x = outX + spreadKernel[k].off;
-      if(x<0||x>=W) continue;
-      const w = sw * spreadKernel[k].w;
-      const oi = y*W+x;
-      densR[oi] += cr*w;
-      densG[oi] += cg*w;
-      densB[oi] += cb*w;
-    }
-  }
-}
-
+/* ── Pure column-based density: 1 pixel = 1 point, no blur ── */
 function buildDensity(){
   densR.fill(0); densG.fill(0); densB.fill(0);
 
@@ -473,36 +416,49 @@ function buildDensity(){
 
       if(mode==='luma'){
         const v = pxL[idx];
-        const centerY = Math.round(PAD_T+(1-v/255)*pH);
-        addPoint(outX, centerY, 0.75, 1.0, 0.55);
+        const outY = Math.round(PAD_T+(1-v/255)*pH);
+        if(outY>=0&&outY<H){
+          const oi = outY*W+outX;
+          densR[oi] += 0.75;
+          densG[oi] += 1.0;
+          densB[oi] += 0.55;
+        }
 
       } else if(mode==='rgb'){
         const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
-        const yR=Math.round(PAD_T+(1-r/255)*pH);
-        const yG=Math.round(PAD_T+(1-g/255)*pH);
-        const yB=Math.round(PAD_T+(1-bl/255)*pH);
-        addPoint(outX, yR, 1.0, 0.0, 0.0);
-        addPoint(outX, yG, 0.0, 1.0, 0.0);
-        addPoint(outX, yB, 0.0, 0.0, 1.0);
+        let y;
+        y=Math.round(PAD_T+(1-r/255)*pH);  if(y>=0&&y<H) densR[y*W+outX]+=1.0;
+        y=Math.round(PAD_T+(1-g/255)*pH);  if(y>=0&&y<H) densG[y*W+outX]+=1.0;
+        y=Math.round(PAD_T+(1-bl/255)*pH); if(y>=0&&y<H) densB[y*W+outX]+=1.0;
 
       } else {
-        /* COLOR mode — FCP style */
+        /* COLOR mode:
+           Primary (1.0): luma Y with actual pixel color
+           Secondary (CMIX): each channel at its own Y with channel color
+           → reveals color separation like FCP */
         const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
         const v=pxL[idx];
         const rn=r/255, gn=g/255, bn=bl/255;
 
-        // Primary: luma position with pixel color
+        // Primary: pixel color at luma position
         const centerY = Math.round(PAD_T+(1-v/255)*pH);
-        addPoint(outX, centerY, rn, gn, bn);
+        if(centerY>=0&&centerY<H){
+          const oi = centerY*W+outX;
+          densR[oi] += rn;
+          densG[oi] += gn;
+          densB[oi] += bn;
+        }
 
-        // Per-channel color separation (30%)
-        const sub = 0.3;
-        const yR=Math.round(PAD_T+(1-r/255)*pH);
-        const yG=Math.round(PAD_T+(1-g/255)*pH);
-        const yB=Math.round(PAD_T+(1-bl/255)*pH);
-        if(Math.abs(yR-centerY) > 2) addPoint(outX, yR, rn*sub, 0, 0);
-        if(Math.abs(yG-centerY) > 2) addPoint(outX, yG, 0, gn*sub, 0);
-        if(Math.abs(yB-centerY) > 2) addPoint(outX, yB, 0, 0, bn*sub);
+        // Per-channel separation
+        if(CMIX > 0){
+          let y;
+          y=Math.round(PAD_T+(1-r/255)*pH);
+          if(y>=0&&y<H && Math.abs(y-centerY)>1){ densR[y*W+outX] += rn*CMIX; }
+          y=Math.round(PAD_T+(1-g/255)*pH);
+          if(y>=0&&y<H && Math.abs(y-centerY)>1){ densG[y*W+outX] += gn*CMIX; }
+          y=Math.round(PAD_T+(1-bl/255)*pH);
+          if(y>=0&&y<H && Math.abs(y-centerY)>1){ densB[y*W+outX] += bn*CMIX; }
+        }
       }
     }
   }
