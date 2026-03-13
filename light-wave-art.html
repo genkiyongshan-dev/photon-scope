@@ -178,10 +178,10 @@
     </div>
     <div class="ctrl-row">
       <div class="ctrl-head">
-        <span class="ctrl-name">DETAIL</span>
-        <span class="ctrl-val" id="detailVal">HIGH</span>
+        <span class="ctrl-name">GAMMA</span>
+        <span class="ctrl-val" id="gammaVal">0.55</span>
       </div>
-      <input type="range" id="detailSlider" min="0" max="2" value="2" step="1">
+      <input type="range" id="gammaSlider" min="20" max="100" value="55" step="5">
     </div>
     <div class="ctrl-row">
       <div class="ctrl-head">
@@ -207,12 +207,16 @@ const gx = gc.getContext('2d');
 const wx = wc.getContext('2d');
 const ax = ac.getContext('2d',{willReadFrequently:true});
 
-/* Analysis heights per DETAIL level: LOW=240, MED=360, HIGH=480 */
-const AH_LEVELS = [240, 360, 480];
-let AH = 480;
+/* Photo uses full 1080 rows for maximum detail.
+   Camera uses 240 for real-time performance. */
+const AH_PHOTO = 1080;
+const AH_CAMERA = 240;
+let AH = AH_CAMERA;
+
 let GAIN_NUMER = 160;
 let DECAY      = 0.72;
-let CMIX       = 0.30;  // COLOR mode: per-channel separation weight
+let GAMMA      = 0.55;   // < 1.0 lifts shadows, reveals mid-tones
+let CMIX       = 0.30;
 const PAD_T=8, PAD_B=22, PAD_L=34, PAD_R=4, HDR=26, TABH=36;
 
 let mode='rgb', source='camera';
@@ -222,6 +226,15 @@ let W=0, H=0, pW=0, pH=0, AW=1;
 let pxR, pxG, pxB, pxL;
 let densR, densG, densB;
 let persR, persG, persB;
+
+/* Pre-computed gamma LUT (256 entries, updated when GAMMA changes) */
+let gammaLUT = new Uint8Array(256);
+function buildGammaLUT(){
+  for(let i=0;i<256;i++){
+    gammaLUT[i] = Math.round(255 * Math.pow(i/255, GAMMA));
+  }
+}
+buildGammaLUT();
 
 // ── Sliders ───────────────────────────────────────────────
 document.getElementById('gainSlider').addEventListener('input', function(){
@@ -236,13 +249,12 @@ document.getElementById('decaySlider').addEventListener('input', function(){
   clearPers();
   if(source==='photo'&&photoLoaded) analyzePhoto();
 });
-document.getElementById('detailSlider').addEventListener('input', function(){
-  const lvl = +this.value;
-  const labels = ['LOW','MED','HIGH'];
-  document.getElementById('detailVal').textContent = labels[lvl];
-  AH = AH_LEVELS[lvl];
-  // Rebuild all buffers
-  resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
+document.getElementById('gammaSlider').addEventListener('input', function(){
+  GAMMA = this.value/100;
+  document.getElementById('gammaVal').textContent = GAMMA.toFixed(2);
+  buildGammaLUT();
+  clearPers();
+  if(source==='photo'&&photoLoaded) analyzePhoto();
 });
 document.getElementById('cmixSlider').addEventListener('input', function(){
   CMIX = this.value/100;
@@ -268,14 +280,18 @@ document.querySelectorAll('.stab').forEach(btn=>{
 function switchSource(){
   clearPers();
   if(source==='camera'){
+    AH = AH_CAMERA;
     pvWrap.style.display='block';
     photoWrap.style.display='none';
     document.getElementById('fps').textContent='';
+    resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
     if(!running){running=true;requestAnimationFrame(loop);}
   } else {
+    AH = AH_PHOTO;
     pvWrap.style.display='none';
     photoWrap.style.display='flex';
     running=false;
+    resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
     if(photoLoaded) analyzePhoto();
   }
   layout();
@@ -318,7 +334,7 @@ function analyzePhoto(){
   densR.fill(0); densG.fill(0); densB.fill(0);
   buildDensity();
 
-  // Analytical steady-state
+  // Analytical steady-state with gamma curve
   const GAIN = GAIN_NUMER / AH;
   const steady = 1 / (1 - Math.min(DECAY, 0.995));
   const sz = W*H;
@@ -329,9 +345,13 @@ function analyzePhoto(){
     const g = densG[i]*GAIN*steady;
     const b = densB[i]*GAIN*steady;
     const bi=i*4;
-    buf[bi]  = r>255?255:r;
-    buf[bi+1]= g>255?255:g;
-    buf[bi+2]= b>255?255:b;
+    // Apply gamma: clamp to 0-255, then LUT
+    const ri = r>255?255: r<0?0: r|0;
+    const gi = g>255?255: g<0?0: g|0;
+    const bbi= b>255?255: b<0?0: b|0;
+    buf[bi]  = gammaLUT[ri];
+    buf[bi+1]= gammaLUT[gi];
+    buf[bi+2]= gammaLUT[bbi];
     buf[bi+3]= 255;
   }
   wx.putImageData(imgData,0,0);
@@ -403,7 +423,26 @@ function analyze(){
   }
 }
 
-/* ── Pure column-based density: 1 pixel = 1 point, no blur ── */
+/* ── Subpixel density accumulation ──
+   Instead of rounding to nearest Y, distribute weight between
+   the two adjacent pixels proportionally. This eliminates banding
+   and creates smooth, continuous vertical lines. */
+function addSubpixel(outX, fy, cr, cg, cb){
+  const y0 = fy|0;          // floor
+  const y1 = y0 + 1;
+  const frac = fy - y0;     // fractional part
+  const w0 = 1.0 - frac;
+  const w1 = frac;
+  if(y0>=0 && y0<H){
+    const oi=y0*W+outX;
+    densR[oi]+=cr*w0; densG[oi]+=cg*w0; densB[oi]+=cb*w0;
+  }
+  if(y1>=0 && y1<H){
+    const oi=y1*W+outX;
+    densR[oi]+=cr*w1; densG[oi]+=cg*w1; densB[oi]+=cb*w1;
+  }
+}
+
 function buildDensity(){
   densR.fill(0); densG.fill(0); densB.fill(0);
 
@@ -416,48 +455,32 @@ function buildDensity(){
 
       if(mode==='luma'){
         const v = pxL[idx];
-        const outY = Math.round(PAD_T+(1-v/255)*pH);
-        if(outY>=0&&outY<H){
-          const oi = outY*W+outX;
-          densR[oi] += 0.75;
-          densG[oi] += 1.0;
-          densB[oi] += 0.55;
-        }
+        const fy = PAD_T+(1-v/255)*pH;
+        addSubpixel(outX, fy, 0.75, 1.0, 0.55);
 
       } else if(mode==='rgb'){
         const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
-        let y;
-        y=Math.round(PAD_T+(1-r/255)*pH);  if(y>=0&&y<H) densR[y*W+outX]+=1.0;
-        y=Math.round(PAD_T+(1-g/255)*pH);  if(y>=0&&y<H) densG[y*W+outX]+=1.0;
-        y=Math.round(PAD_T+(1-bl/255)*pH); if(y>=0&&y<H) densB[y*W+outX]+=1.0;
+        addSubpixel(outX, PAD_T+(1-r/255)*pH, 1.0, 0.0, 0.0);
+        addSubpixel(outX, PAD_T+(1-g/255)*pH, 0.0, 1.0, 0.0);
+        addSubpixel(outX, PAD_T+(1-bl/255)*pH, 0.0, 0.0, 1.0);
 
       } else {
-        /* COLOR mode:
-           Primary (1.0): luma Y with actual pixel color
-           Secondary (CMIX): each channel at its own Y with channel color
-           → reveals color separation like FCP */
         const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
         const v=pxL[idx];
         const rn=r/255, gn=g/255, bn=bl/255;
 
-        // Primary: pixel color at luma position
-        const centerY = Math.round(PAD_T+(1-v/255)*pH);
-        if(centerY>=0&&centerY<H){
-          const oi = centerY*W+outX;
-          densR[oi] += rn;
-          densG[oi] += gn;
-          densB[oi] += bn;
-        }
+        // Primary: pixel color at luma Y
+        const fy = PAD_T+(1-v/255)*pH;
+        addSubpixel(outX, fy, rn, gn, bn);
 
         // Per-channel separation
         if(CMIX > 0){
-          let y;
-          y=Math.round(PAD_T+(1-r/255)*pH);
-          if(y>=0&&y<H && Math.abs(y-centerY)>1){ densR[y*W+outX] += rn*CMIX; }
-          y=Math.round(PAD_T+(1-g/255)*pH);
-          if(y>=0&&y<H && Math.abs(y-centerY)>1){ densG[y*W+outX] += gn*CMIX; }
-          y=Math.round(PAD_T+(1-bl/255)*pH);
-          if(y>=0&&y<H && Math.abs(y-centerY)>1){ densB[y*W+outX] += bn*CMIX; }
+          const fyR = PAD_T+(1-r/255)*pH;
+          const fyG = PAD_T+(1-g/255)*pH;
+          const fyB = PAD_T+(1-bl/255)*pH;
+          if(Math.abs(fyR-fy) > 1.5) addSubpixel(outX, fyR, rn*CMIX, 0, 0);
+          if(Math.abs(fyG-fy) > 1.5) addSubpixel(outX, fyG, 0, gn*CMIX, 0);
+          if(Math.abs(fyB-fy) > 1.5) addSubpixel(outX, fyB, 0, 0, bn*CMIX);
         }
       }
     }
@@ -475,10 +498,14 @@ function drawScope(){
     persG[i]=persG[i]*DECAY+densG[i]*GAIN;
     persB[i]=persB[i]*DECAY+densB[i]*GAIN;
     const b=i*4;
-    buf[b]  =persR[i]>255?255:persR[i];
-    buf[b+1]=persG[i]>255?255:persG[i];
-    buf[b+2]=persB[i]>255?255:persB[i];
-    buf[b+3]=255;
+    // Apply gamma LUT for camera mode too
+    const ri = persR[i]>255?255: persR[i]<0?0: persR[i]|0;
+    const gi = persG[i]>255?255: persG[i]<0?0: persG[i]|0;
+    const bi = persB[i]>255?255: persB[i]<0?0: persB[i]|0;
+    buf[b]   = gammaLUT[ri];
+    buf[b+1] = gammaLUT[gi];
+    buf[b+2] = gammaLUT[bi];
+    buf[b+3] = 255;
   }
   wx.putImageData(imgData,0,0);
 }
