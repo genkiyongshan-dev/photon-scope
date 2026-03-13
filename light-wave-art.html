@@ -74,7 +74,14 @@
     display:flex;align-items:center;padding:0 10px;z-index:5;
   }
   .hdrTitle{font-size:8px;letter-spacing:.28em;color:rgba(255,255,255,.5)}
-  .modes{margin-left:auto;display:flex;gap:4px}
+  .modes{margin-left:auto;display:flex;gap:4px;align-items:center}
+  #saveBtn{
+    background:transparent;border:1px solid rgba(255,255,255,.15);
+    color:rgba(255,255,255,.4);font-family:'Space Mono',monospace;
+    font-size:7px;letter-spacing:.15em;padding:2px 8px;cursor:pointer;
+    border-radius:2px;margin-right:8px;transition:color .2s,border-color .2s;
+  }
+  #saveBtn:active{color:rgba(255,255,255,.9);border-color:rgba(255,255,255,.5)}
   .mb{
     background:transparent;border:none;color:rgba(255,255,255,.25);
     font-family:'Space Mono',monospace;font-size:8px;letter-spacing:.28em;
@@ -91,6 +98,13 @@
   }
   .ftrL{font-size:7px;letter-spacing:.3em;color:rgba(255,255,255,.2)}
   .ftrR{margin-left:auto;font-size:7px;letter-spacing:.2em;color:rgba(255,255,255,.12)}
+
+  /* Save flash feedback */
+  #saveFlash{
+    position:absolute;inset:0;background:rgba(255,255,255,.15);
+    pointer-events:none;opacity:0;transition:opacity .3s;z-index:10;
+  }
+  #saveFlash.flash{opacity:1}
 
   #controls{
     position:fixed;left:0;right:0;bottom:0;background:#111;
@@ -146,6 +160,7 @@
   <div class="hdr">
     <span class="hdrTitle" id="hdrTitle">RGB OVERLAY</span>
     <div class="modes">
+      <button id="saveBtn">💾 SAVE</button>
       <button class="mb" data-m="luma">LUMA</button>
       <button class="mb on" data-m="rgb">RGB</button>
       <button class="mb" data-m="color">COLOR</button>
@@ -153,6 +168,7 @@
   </div>
   <canvas id="gc"></canvas>
   <canvas id="wc"></canvas>
+  <div id="saveFlash"></div>
   <div class="yAxis" id="yAxis"></div>
   <div class="ftr">
     <span class="ftrL">Rec. 709</span>
@@ -194,6 +210,8 @@
 </div>
 
 <canvas id="ac" style="display:none"></canvas>
+<!-- Offscreen canvas for compositing save image -->
+<canvas id="saveCanvas" style="display:none"></canvas>
 
 <script>
 const video    = document.getElementById('video');
@@ -207,11 +225,10 @@ const gx = gc.getContext('2d');
 const wx = wc.getContext('2d');
 const ax = ac.getContext('2d',{willReadFrequently:true});
 
-/* DPR: render at native device resolution */
 const DPR = window.devicePixelRatio || 1;
 
-const AH_PHOTO = 1080;
 const AH_CAMERA = 240;
+/* AH_PHOTO will be set dynamically to match pH (physical display height) */
 let AH = AH_CAMERA;
 
 let GAIN_NUMER = 160;
@@ -224,11 +241,8 @@ let mode='rgb', source='camera';
 let running=false, photoLoaded=false;
 let lastT=performance.now();
 
-/* Physical pixel dimensions (DPR-scaled) */
 let W=0, H=0, pW=0, pH=0, AW=1;
-/* CSS dimensions (for coordinate mapping) */
 let cssW=0, cssH=0;
-/* Scaled padding */
 let sPAD_T, sPAD_B, sPAD_L, sPAD_R;
 
 let pxR, pxG, pxB, pxL;
@@ -294,10 +308,10 @@ function switchSource(){
     resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
     if(!running){running=true;requestAnimationFrame(loop);}
   } else {
-    AH = AH_PHOTO;
     pvWrap.style.display='none';
     photoWrap.style.display='flex';
     running=false;
+    /* AH_PHOTO = pH so 1 analysis row = 1 physical display row → no banding */
     resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
     if(photoLoaded) analyzePhoto();
   }
@@ -362,6 +376,48 @@ function analyzePhoto(){
   wx.putImageData(imgData,0,0);
 }
 
+// ── Save waveform as PNG ──────────────────────────────────
+document.getElementById('saveBtn').addEventListener('click', saveWaveform);
+
+function saveWaveform(){
+  // Flash feedback
+  const flash = document.getElementById('saveFlash');
+  flash.classList.add('flash');
+  setTimeout(()=> flash.classList.remove('flash'), 200);
+
+  // Composite: grid canvas + waveform canvas
+  const sc = document.getElementById('saveCanvas');
+  const sx = sc.getContext('2d');
+  sc.width = W; sc.height = H;
+  // Black background
+  sx.fillStyle = '#0d0d0d';
+  sx.fillRect(0,0,W,H);
+  // Draw grid
+  sx.drawImage(gc, 0, 0);
+  // Draw waveform
+  sx.drawImage(wc, 0, 0);
+
+  // Convert to blob and trigger download
+  sc.toBlob(function(blob){
+    if(!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ts = new Date();
+    const stamp = ts.getFullYear()+
+      String(ts.getMonth()+1).padStart(2,'0')+
+      String(ts.getDate()).padStart(2,'0')+'_'+
+      String(ts.getHours()).padStart(2,'0')+
+      String(ts.getMinutes()).padStart(2,'0')+
+      String(ts.getSeconds()).padStart(2,'0');
+    a.download = 'photon-scope_'+mode+'_'+stamp+'.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
 // ── Layout ────────────────────────────────────────────────
 function layout(){
   const SW=window.innerWidth, SH=window.innerHeight;
@@ -388,11 +444,9 @@ function resizeScope(sw,sh){
   cssW=sw; cssH=sh-HDR;
   if(cssW<=0||cssH<=0) return;
 
-  /* Physical pixel dimensions */
   W = Math.round(cssW * DPR);
   H = Math.round(cssH * DPR);
 
-  /* Scaled padding */
   sPAD_T = Math.round(PAD_T * DPR);
   sPAD_B = Math.round(PAD_B * DPR);
   sPAD_L = Math.round(PAD_L * DPR);
@@ -401,16 +455,22 @@ function resizeScope(sw,sh){
   pW = W - sPAD_L - sPAD_R;
   pH = H - sPAD_T - sPAD_B;
 
-  /* Canvas: physical pixels internally, CSS pixels for display */
-  gc.width  = W; gc.height = H;
-  gc.style.width  = cssW+'px'; gc.style.height = cssH+'px';
-  wc.width  = W; wc.height = H;
-  wc.style.width  = cssW+'px'; wc.style.height = cssH+'px';
+  gc.width=W; gc.height=H;
+  gc.style.width=cssW+'px'; gc.style.height=cssH+'px';
+  wc.width=W; wc.height=H;
+  wc.style.width=cssW+'px'; wc.style.height=cssH+'px';
 
   AW = pW;
-  ac.width = AW; ac.height = AH;
+  /* For photo mode: AH = pH (1:1 mapping eliminates horizontal banding)
+     For camera mode: AH stays at 240 for performance */
+  if(source==='photo'){
+    AH = pH;
+  } else {
+    AH = AH_CAMERA;
+  }
+  ac.width=AW; ac.height=AH;
 
-  const sz = W*H;
+  const sz=W*H;
   pxR=new Uint8Array(AW*AH); pxG=new Uint8Array(AW*AH);
   pxB=new Uint8Array(AW*AH); pxL=new Uint8Array(AW*AH);
   densR=new Float32Array(sz); densG=new Float32Array(sz); densB=new Float32Array(sz);
@@ -422,7 +482,6 @@ function resizeScope(sw,sh){
 
 function buildYAxis(){
   const el=document.getElementById('yAxis'); el.innerHTML='';
-  /* Y-axis labels use CSS coordinates */
   const cssPH = cssH - PAD_T - PAD_B;
   [100,75,50,25,0].forEach(v=>{
     const d=document.createElement('div');
@@ -433,9 +492,9 @@ function buildYAxis(){
 }
 function drawGrid(){
   gx.clearRect(0,0,W,H);
-  gx.lineWidth = DPR;  /* 1 CSS pixel = DPR physical pixels */
+  gx.lineWidth=DPR;
   [0,25,50,75,100].forEach(v=>{
-    const y = sPAD_T+(1-v/100)*pH;
+    const y=sPAD_T+(1-v/100)*pH;
     gx.strokeStyle=(v===0||v===100)?'rgba(255,255,255,.1)':'rgba(255,255,255,.05)';
     gx.beginPath(); gx.moveTo(sPAD_L,y); gx.lineTo(W-sPAD_R,y); gx.stroke();
   });
@@ -451,7 +510,6 @@ function analyze(){
   }
 }
 
-/* ── Subpixel Y interpolation ── */
 function addSubpixel(outX, fy, cr, cg, cb){
   const y0 = fy|0;
   const y1 = y0+1;
@@ -543,7 +601,6 @@ document.querySelectorAll('.mb').forEach(btn=>{
   });
 });
 
-// ── Start ─────────────────────────────────────────────────
 document.getElementById('startBtn').addEventListener('click', async()=>{
   try{
     const stream = await navigator.mediaDevices.getUserMedia({
