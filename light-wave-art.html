@@ -3,12 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>PHOTON SCOPE</title>
+<title>WAVEFORM MONITOR</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{width:100%;height:100%;background:#0d0d0d;overflow:hidden;font-family:'Space Mono',monospace}
 
+  /* ── Start screen ── */
   #startScreen{
     position:fixed;top:36px;left:0;right:0;bottom:0;display:flex;flex-direction:column;
     align-items:center;justify-content:center;z-index:99;background:#0d0d0d;gap:14px;
@@ -20,6 +21,7 @@
   }
   .sub{font-size:8px;letter-spacing:.3em;color:rgba(255,255,255,.2)}
 
+  /* ── Source tab bar (top of app) ── */
   #sourceBar{
     position:fixed;top:0;left:0;right:0;height:36px;
     background:#161616;border-bottom:1px solid rgba(255,255,255,.08);
@@ -33,9 +35,11 @@
   }
   .stab.on{color:rgba(255,255,255,.85);border-bottom:2px solid rgba(255,255,255,.5)}
 
+  /* ── Panels — JS sets top/height ── */
   #pvWrap{position:fixed;left:0;right:0;background:#000;overflow:hidden}
   #video{width:100%;height:100%;object-fit:cover;display:block}
 
+  /* Photo preview — letterbox 16:9 */
   #photoWrap{
     position:fixed;left:0;right:0;background:#000;overflow:hidden;
     display:none;align-items:center;justify-content:center;
@@ -60,6 +64,7 @@
     background:#f02020;animation:blink 1.4s ease-in-out infinite}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.1}}
 
+  /* Photo change button */
   #changePhotoBtn{
     position:absolute;top:8px;right:8px;
     background:rgba(0,0,0,.5);border:1px solid rgba(255,255,255,.2);
@@ -67,6 +72,7 @@
     font-size:7px;letter-spacing:.2em;padding:4px 10px;cursor:pointer;display:none;
   }
 
+  /* ── Scope ── */
   #scopeWrap{position:fixed;left:0;right:0;background:#0d0d0d;overflow:hidden}
   .hdr{
     position:absolute;top:0;left:0;right:0;height:26px;
@@ -92,45 +98,48 @@
   .ftrL{font-size:7px;letter-spacing:.3em;color:rgba(255,255,255,.2)}
   .ftrR{margin-left:auto;font-size:7px;letter-spacing:.2em;color:rgba(255,255,255,.12)}
 
+  /* ── Controls ── */
   #controls{
-    position:fixed;left:0;right:0;bottom:0;background:#111;
+    position:fixed;left:0;right:0;background:#111;
     border-top:1px solid rgba(255,255,255,.07);
-    overflow-y:auto;-webkit-overflow-scrolling:touch;
-    padding:10px 24px 20px;
+    display:flex;flex-direction:column;justify-content:center;
+    padding:10px 24px;gap:6px;
   }
-  .ctrl-grid{display:flex;flex-wrap:wrap;gap:8px 16px}
-  .ctrl-row{flex:1 1 calc(50% - 8px);min-width:120px;display:flex;flex-direction:column;gap:3px}
+  .ctrl-row{display:flex;flex-direction:column;gap:4px}
   .ctrl-head{display:flex;justify-content:space-between;align-items:baseline}
-  .ctrl-name{font-size:7px;letter-spacing:.25em;color:rgba(255,255,255,.35)}
-  .ctrl-val{font-size:11px;font-weight:700;letter-spacing:.05em;color:rgba(255,255,255,.7)}
+  .ctrl-name{font-size:8px;letter-spacing:.3em;color:rgba(255,255,255,.4)}
+  .ctrl-val{font-size:12px;font-weight:700;letter-spacing:.05em;color:rgba(255,255,255,.75)}
   input[type=range]{
     width:100%;-webkit-appearance:none;appearance:none;
-    height:2px;background:rgba(255,255,255,.15);border-radius:2px;outline:none;cursor:pointer;
+    height:3px;background:rgba(255,255,255,.18);border-radius:2px;outline:none;cursor:pointer;
   }
   input[type=range]::-webkit-slider-thumb{
-    -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
-    background:#fff;cursor:pointer;box-shadow:0 0 6px rgba(255,255,255,.2);
+    -webkit-appearance:none;width:22px;height:22px;border-radius:50%;
+    background:#fff;cursor:pointer;box-shadow:0 0 8px rgba(255,255,255,.25);
   }
 </style>
 </head>
 <body>
 
 <div id="startScreen">
-  <button id="startBtn">▶ START SCOPE</button>
-  <div class="sub">PHOTON SCOPE · RGB OVERLAY WAVEFORM</div>
+  <button id="startBtn">▶ START WAVEFORM</button>
+  <div class="sub">FCP · RGB OVERLAY WAVEFORM MONITOR</div>
 </div>
 
+<!-- Source selector tab -->
 <div id="sourceBar" style="display:flex">
   <button class="stab on" data-s="camera">◉ CAMERA</button>
   <button class="stab" data-s="photo">⊞ PHOTO</button>
 </div>
 
+<!-- Camera preview -->
 <div id="pvWrap">
   <video id="video" autoplay playsinline muted></video>
   <div class="rec"></div>
   <div class="pvLabel">CAMERA INPUT</div>
 </div>
 
+<!-- Photo preview -->
 <div id="photoWrap">
   <img id="photoImg" style="display:none">
   <div id="photoDropzone">
@@ -142,6 +151,7 @@
   <input type="file" id="fileInput" accept="image/*">
 </div>
 
+<!-- Waveform scope -->
 <div id="scopeWrap">
   <div class="hdr">
     <span class="hdrTitle" id="hdrTitle">RGB OVERLAY</span>
@@ -160,63 +170,42 @@
   </div>
 </div>
 
+<!-- Controls -->
 <div id="controls">
-  <div class="ctrl-grid">
-    <div class="ctrl-row">
-      <div class="ctrl-head">
-        <span class="ctrl-name">GAIN</span>
-        <span class="ctrl-val" id="gainVal">160</span>
-      </div>
-      <input type="range" id="gainSlider" min="20" max="600" value="160" step="5">
+  <div class="ctrl-row">
+    <div class="ctrl-head">
+      <span class="ctrl-name">GAIN</span>
+      <span class="ctrl-val" id="gainVal">160</span>
     </div>
-    <div class="ctrl-row">
-      <div class="ctrl-head">
-        <span class="ctrl-name">DECAY</span>
-        <span class="ctrl-val" id="decayVal">0.72</span>
-      </div>
-      <input type="range" id="decaySlider" min="0" max="97" value="72" step="1">
+    <input type="range" id="gainSlider" min="20" max="800" value="160" step="5">
+  </div>
+  <div class="ctrl-row">
+    <div class="ctrl-head">
+      <span class="ctrl-name">DECAY</span>
+      <span class="ctrl-val" id="decayVal">0.72</span>
     </div>
-    <div class="ctrl-row">
-      <div class="ctrl-head">
-        <span class="ctrl-name">GAMMA</span>
-        <span class="ctrl-val" id="gammaVal">0.55</span>
-      </div>
-      <input type="range" id="gammaSlider" min="20" max="100" value="55" step="5">
-    </div>
-    <div class="ctrl-row">
-      <div class="ctrl-head">
-        <span class="ctrl-name">COLOR MIX</span>
-        <span class="ctrl-val" id="cmixVal">0.30</span>
-      </div>
-      <input type="range" id="cmixSlider" min="0" max="60" value="30" step="5">
-    </div>
+    <input type="range" id="decaySlider" min="0" max="97" value="72" step="1">
+
   </div>
 </div>
 
 <canvas id="ac" style="display:none"></canvas>
 
 <script>
-const video    = document.getElementById('video');
-const photoImg = document.getElementById('photoImg');
-const photoWrap= document.getElementById('photoWrap');
-const pvWrap   = document.getElementById('pvWrap');
-const ac = document.getElementById('ac');
-const gc = document.getElementById('gc');
-const wc = document.getElementById('wc');
-const gx = gc.getContext('2d');
-const wx = wc.getContext('2d');
-const ax = ac.getContext('2d',{willReadFrequently:true});
+const video      = document.getElementById('video');
+const photoImg   = document.getElementById('photoImg');
+const photoWrap  = document.getElementById('photoWrap');
+const pvWrap     = document.getElementById('pvWrap');
+const ac         = document.getElementById('ac');
+const gc         = document.getElementById('gc');
+const wc         = document.getElementById('wc');
+const gx         = gc.getContext('2d');
+const wx         = wc.getContext('2d');
+const ax         = ac.getContext('2d', {willReadFrequently:true});
 
-/* Photo uses full 1080 rows for maximum detail.
-   Camera uses 240 for real-time performance. */
-const AH_PHOTO = 1080;
-const AH_CAMERA = 240;
-let AH = AH_CAMERA;
-
+const AH = 240;
 let GAIN_NUMER = 160;
-let DECAY      = 0.72;
-let GAMMA      = 0.55;   // < 1.0 lifts shadows, reveals mid-tones
-let CMIX       = 0.30;
+let DECAY = 0.72;
 const PAD_T=8, PAD_B=22, PAD_L=34, PAD_R=4, HDR=26, TABH=36;
 
 let mode='rgb', source='camera';
@@ -227,42 +216,19 @@ let pxR, pxG, pxB, pxL;
 let densR, densG, densB;
 let persR, persG, persB;
 
-/* Pre-computed gamma LUT (256 entries, updated when GAMMA changes) */
-let gammaLUT = new Uint8Array(256);
-function buildGammaLUT(){
-  for(let i=0;i<256;i++){
-    gammaLUT[i] = Math.round(255 * Math.pow(i/255, GAMMA));
-  }
-}
-buildGammaLUT();
-
 // ── Sliders ───────────────────────────────────────────────
 document.getElementById('gainSlider').addEventListener('input', function(){
   GAIN_NUMER = +this.value;
   document.getElementById('gainVal').textContent = this.value;
   clearPers();
-  if(source==='photo'&&photoLoaded) analyzePhoto();
+  if(source==='photo' && photoLoaded) analyzePhoto();
 });
 document.getElementById('decaySlider').addEventListener('input', function(){
-  DECAY = this.value/100;
+  DECAY = this.value / 100;
   document.getElementById('decayVal').textContent = DECAY.toFixed(2);
   clearPers();
-  if(source==='photo'&&photoLoaded) analyzePhoto();
+  if(source==='photo' && photoLoaded) analyzePhoto();
 });
-document.getElementById('gammaSlider').addEventListener('input', function(){
-  GAMMA = this.value/100;
-  document.getElementById('gammaVal').textContent = GAMMA.toFixed(2);
-  buildGammaLUT();
-  clearPers();
-  if(source==='photo'&&photoLoaded) analyzePhoto();
-});
-document.getElementById('cmixSlider').addEventListener('input', function(){
-  CMIX = this.value/100;
-  document.getElementById('cmixVal').textContent = CMIX.toFixed(2);
-  clearPers();
-  if(source==='photo'&&photoLoaded) analyzePhoto();
-});
-
 function clearPers(){
   if(persR){ persR.fill(0); persG.fill(0); persB.fill(0); }
 }
@@ -279,35 +245,36 @@ document.querySelectorAll('.stab').forEach(btn=>{
 
 function switchSource(){
   clearPers();
-  if(source==='camera'){
-    AH = AH_CAMERA;
-    pvWrap.style.display='block';
-    photoWrap.style.display='none';
-    document.getElementById('fps').textContent='';
-    resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
-    if(!running){running=true;requestAnimationFrame(loop);}
+  if(source === 'camera'){
+    pvWrap.style.display   = 'block';
+    photoWrap.style.display= 'none';
+    document.getElementById('fps').textContent = '';
+    // resume live loop
+    if(!running){ running=true; requestAnimationFrame(loop); }
   } else {
-    AH = AH_PHOTO;
-    pvWrap.style.display='none';
-    photoWrap.style.display='flex';
-    running=false;
-    resizeScope(window.innerWidth, Math.floor(window.innerWidth*9/16));
+    pvWrap.style.display   = 'none';
+    photoWrap.style.display= 'flex';
+    running = false; // pause live loop
     if(photoLoaded) analyzePhoto();
   }
   layout();
 }
 
 // ── File picker ───────────────────────────────────────────
-document.getElementById('openFileBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
-document.getElementById('changePhotoBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
+document.getElementById('openFileBtn').addEventListener('click',()=>{
+  document.getElementById('fileInput').click();
+});
+document.getElementById('changePhotoBtn').addEventListener('click',()=>{
+  document.getElementById('fileInput').click();
+});
 document.getElementById('fileInput').addEventListener('change', function(){
-  if(!this.files||!this.files[0]) return;
+  if(!this.files || !this.files[0]) return;
   const url = URL.createObjectURL(this.files[0]);
   photoImg.onload = ()=>{
-    photoLoaded=true;
+    photoLoaded = true;
     document.getElementById('photoDropzone').classList.add('hidden');
-    photoImg.style.display='block';
-    document.getElementById('changePhotoBtn').style.display='block';
+    photoImg.style.display = 'block';
+    document.getElementById('changePhotoBtn').style.display = 'block';
     clearPers();
     analyzePhoto();
   };
@@ -315,88 +282,111 @@ document.getElementById('fileInput').addEventListener('change', function(){
 });
 
 function analyzePhoto(){
-  if(!photoLoaded||W===0) return;
+  if(!photoLoaded || W===0) return;
+  const DPR = window.devicePixelRatio || 1;
+  const PW = Math.round(W*DPR), PH = Math.round(H*DPR);
+
   ax.fillStyle='#000';
   ax.fillRect(0,0,AW,AH);
-  const iw=photoImg.naturalWidth, ih=photoImg.naturalHeight;
-  const scale=Math.min(AW/iw, AH/ih);
-  const dw=iw*scale, dh=ih*scale;
-  const dx=(AW-dw)/2, dy=(AH-dh)/2;
+  const iw = photoImg.naturalWidth;
+  const ih = photoImg.naturalHeight;
+  const scale = Math.min(AW/iw, AH/ih);
+  const dw = iw*scale, dh = ih*scale;
+  const dx = (AW-dw)/2, dy = (AH-dh)/2;
   ax.drawImage(photoImg, dx, dy, dw, dh);
 
-  const d=ax.getImageData(0,0,AW,AH).data;
+  const d = ax.getImageData(0,0,AW,AH).data;
   for(let i=0;i<AW*AH;i++){
     const b=i*4;
     pxR[i]=d[b]; pxG[i]=d[b+1]; pxB[i]=d[b+2];
     pxL[i]=(d[b]*299+d[b+1]*587+d[b+2]*114+500)/1000|0;
   }
-
   densR.fill(0); densG.fill(0); densB.fill(0);
   buildDensity();
-
-  // Analytical steady-state with gamma curve
+  persR.fill(0); persG.fill(0); persB.fill(0);
   const GAIN = GAIN_NUMER / AH;
-  const steady = 1 / (1 - Math.min(DECAY, 0.995));
-  const sz = W*H;
-  const imgData = new ImageData(W,H);
+  const sz = PW*PH;
+  for(let pass=0; pass<80; pass++){
+    for(let i=0;i<sz;i++){
+      persR[i]=persR[i]*DECAY+densR[i]*GAIN;
+      persG[i]=persG[i]*DECAY+densG[i]*GAIN;
+      persB[i]=persB[i]*DECAY+densB[i]*GAIN;
+    }
+  }
+  const imgData = new ImageData(PW,PH);
   const buf = imgData.data;
   for(let i=0;i<sz;i++){
-    const r = densR[i]*GAIN*steady;
-    const g = densG[i]*GAIN*steady;
-    const b = densB[i]*GAIN*steady;
-    const bi=i*4;
-    // Apply gamma: clamp to 0-255, then LUT
-    const ri = r>255?255: r<0?0: r|0;
-    const gi = g>255?255: g<0?0: g|0;
-    const bbi= b>255?255: b<0?0: b|0;
-    buf[bi]  = gammaLUT[ri];
-    buf[bi+1]= gammaLUT[gi];
-    buf[bi+2]= gammaLUT[bbi];
-    buf[bi+3]= 255;
+    const b=i*4;
+    buf[b]  =persR[i]>255?255:persR[i];
+    buf[b+1]=persG[i]>255?255:persG[i];
+    buf[b+2]=persB[i]>255?255:persB[i];
+    buf[b+3]=255;
   }
   wx.putImageData(imgData,0,0);
 }
 
 // ── Layout ────────────────────────────────────────────────
 function layout(){
-  const SW=window.innerWidth, SH=window.innerHeight;
-  const panelH=Math.floor(SW*9/16);
-  const pvTop=TABH;
+  const SW = window.innerWidth;
+  const SH = window.innerHeight;
+  const panelH = Math.floor(SW * 9 / 16);
+  const pvTop  = TABH;
 
-  pvWrap.style.top=pvTop+'px';    pvWrap.style.height=panelH+'px';
-  photoWrap.style.top=pvTop+'px'; photoWrap.style.height=panelH+'px';
+  // Camera preview
+  pvWrap.style.top    = pvTop + 'px';
+  pvWrap.style.height = panelH + 'px';
 
-  const scopeTop=pvTop+panelH;
-  const scopeEl=document.getElementById('scopeWrap');
-  scopeEl.style.top=scopeTop+'px'; scopeEl.style.height=panelH+'px';
+  // Photo preview
+  photoWrap.style.top    = pvTop + 'px';
+  photoWrap.style.height = panelH + 'px';
 
-  const ctrlTop=scopeTop+panelH;
-  const ctrlH=SH-ctrlTop;
-  const ctrl=document.getElementById('controls');
-  ctrl.style.top=ctrlTop+'px';
-  ctrl.style.height=Math.max(0,ctrlH)+'px';
+  // Scope
+  const scopeTop = pvTop + panelH;
+  document.getElementById('scopeWrap').style.top    = scopeTop + 'px';
+  document.getElementById('scopeWrap').style.height = panelH + 'px';
 
-  resizeScope(SW,panelH);
+  // Controls
+  const ctrlTop = scopeTop + panelH;
+  const ctrlH   = SH - ctrlTop;
+  const ctrl = document.getElementById('controls');
+  ctrl.style.top    = ctrlTop + 'px';
+  ctrl.style.height = Math.max(0, ctrlH) + 'px';
+  ctrl.style.display = 'flex';
+
+  resizeScope(SW, panelH);
 }
 
-function resizeScope(sw,sh){
-  W=sw; H=sh-HDR;
+function resizeScope(sw, sh){
+  const DPR = window.devicePixelRatio || 1;
+  W = sw; H = sh - HDR;
   if(W<=0||H<=0) return;
-  pW=W-PAD_L-PAD_R; pH=H-PAD_T-PAD_B;
-  gc.width=W; gc.height=H;
-  wc.width=W; wc.height=H;
-  AW=pW; ac.width=AW; ac.height=AH;
-  const sz=W*H;
+  pW = W - PAD_L - PAD_R;
+  pH = H - PAD_T - PAD_B;
+
+  // グリッドcanvasはDPR対応（スタイルサイズは論理px、実描画は物理px）
+  gc.width = Math.round(W*DPR); gc.height = Math.round(H*DPR);
+  gc.style.width = W+'px'; gc.style.height = H+'px';
+  gx.scale(DPR, DPR);
+
+  // 波形canvasもDPR対応（putImageDataは物理pxで書く）
+  wc.width = Math.round(W*DPR); wc.height = Math.round(H*DPR);
+  wc.style.width = W+'px'; wc.style.height = H+'px';
+
+  AW = pW;
+  ac.width=AW; ac.height=AH;
+  const PW=Math.round(W*DPR), PH=Math.round(H*DPR);
+  const sz=PW*PH;
   pxR=new Uint8Array(AW*AH); pxG=new Uint8Array(AW*AH);
   pxB=new Uint8Array(AW*AH); pxL=new Uint8Array(AW*AH);
   densR=new Float32Array(sz); densG=new Float32Array(sz); densB=new Float32Array(sz);
   persR=new Float32Array(sz); persG=new Float32Array(sz); persB=new Float32Array(sz);
   buildYAxis(); drawGrid();
-  if(source==='photo'&&photoLoaded) analyzePhoto();
+  if(source==='photo' && photoLoaded) analyzePhoto();
 }
 
 function buildYAxis(){
-  const el=document.getElementById('yAxis'); el.innerHTML='';
+  const el=document.getElementById('yAxis');
+  el.innerHTML='';
   [100,75,50,25,0].forEach(v=>{
     const d=document.createElement('div');
     d.className='yL'; d.textContent=v;
@@ -405,7 +395,8 @@ function buildYAxis(){
   });
 }
 function drawGrid(){
-  gx.clearRect(0,0,W,H); gx.lineWidth=1;
+  gx.clearRect(0,0,W,H);
+  gx.lineWidth=1;
   [0,25,50,75,100].forEach(v=>{
     const y=PAD_T+(1-v/100)*pH;
     gx.strokeStyle=(v===0||v===100)?'rgba(255,255,255,.1)':'rgba(255,255,255,.05)';
@@ -423,64 +414,35 @@ function analyze(){
   }
 }
 
-/* ── Subpixel density accumulation ──
-   Instead of rounding to nearest Y, distribute weight between
-   the two adjacent pixels proportionally. This eliminates banding
-   and creates smooth, continuous vertical lines. */
-function addSubpixel(outX, fy, cr, cg, cb){
-  const y0 = fy|0;          // floor
-  const y1 = y0 + 1;
-  const frac = fy - y0;     // fractional part
-  const w0 = 1.0 - frac;
-  const w1 = frac;
-  if(y0>=0 && y0<H){
-    const oi=y0*W+outX;
-    densR[oi]+=cr*w0; densG[oi]+=cg*w0; densB[oi]+=cb*w0;
-  }
-  if(y1>=0 && y1<H){
-    const oi=y1*W+outX;
-    densR[oi]+=cr*w1; densG[oi]+=cg*w1; densB[oi]+=cb*w1;
-  }
-}
-
 function buildDensity(){
+  const DPR = window.devicePixelRatio || 1;
+  const PW = Math.round(W*DPR);  // 物理px幅
+  const PH = Math.round(H*DPR);  // 物理px高さ
+  const pPAD_L = Math.round(PAD_L*DPR);
+  const pPAD_T = Math.round(PAD_T*DPR);
+  const ppH    = Math.round(pH*DPR);
+
   densR.fill(0); densG.fill(0); densB.fill(0);
-
-  for(let col=0; col<AW; col++){
-    const outX = PAD_L+col;
-    if(outX<0||outX>=W) continue;
-
-    for(let row=0; row<AH; row++){
-      const idx = row*AW+col;
-
+  for(let col=0;col<AW;col++){
+    const outX = pPAD_L + Math.round(col*DPR);
+    if(outX<0||outX>=PW) continue;
+    for(let row=0;row<AH;row++){
+      const idx=row*AW+col;
       if(mode==='luma'){
-        const v = pxL[idx];
-        const fy = PAD_T+(1-v/255)*pH;
-        addSubpixel(outX, fy, 0.75, 1.0, 0.55);
-
-      } else if(mode==='rgb'){
-        const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
-        addSubpixel(outX, PAD_T+(1-r/255)*pH, 1.0, 0.0, 0.0);
-        addSubpixel(outX, PAD_T+(1-g/255)*pH, 0.0, 1.0, 0.0);
-        addSubpixel(outX, PAD_T+(1-bl/255)*pH, 0.0, 0.0, 1.0);
-
-      } else {
-        const r=pxR[idx], g=pxG[idx], bl=pxB[idx];
         const v=pxL[idx];
-        const rn=r/255, gn=g/255, bn=bl/255;
-
-        // Primary: pixel color at luma Y
-        const fy = PAD_T+(1-v/255)*pH;
-        addSubpixel(outX, fy, rn, gn, bn);
-
-        // Per-channel separation
-        if(CMIX > 0){
-          const fyR = PAD_T+(1-r/255)*pH;
-          const fyG = PAD_T+(1-g/255)*pH;
-          const fyB = PAD_T+(1-bl/255)*pH;
-          if(Math.abs(fyR-fy) > 1.5) addSubpixel(outX, fyR, rn*CMIX, 0, 0);
-          if(Math.abs(fyG-fy) > 1.5) addSubpixel(outX, fyG, 0, gn*CMIX, 0);
-          if(Math.abs(fyB-fy) > 1.5) addSubpixel(outX, fyB, 0, 0, bn*CMIX);
+        const outY=Math.round(pPAD_T+(1-v/255)*ppH);
+        if(outY>=0&&outY<PH){const i=outY*PW+outX; densR[i]+=0.75; densG[i]+=1.0; densB[i]+=0.55;}
+      } else if(mode==='rgb'){
+        let y;
+        y=Math.round(pPAD_T+(1-pxR[idx]/255)*ppH); if(y>=0&&y<PH) densR[y*PW+outX]+=1.0;
+        y=Math.round(pPAD_T+(1-pxG[idx]/255)*ppH); if(y>=0&&y<PH) densG[y*PW+outX]+=1.0;
+        y=Math.round(pPAD_T+(1-pxB[idx]/255)*ppH); if(y>=0&&y<PH) densB[y*PW+outX]+=1.0;
+      } else {
+        const v=pxL[idx];
+        const outY=Math.round(pPAD_T+(1-v/255)*ppH);
+        if(outY>=0&&outY<PH){
+          const i=outY*PW+outX;
+          densR[i]+=pxR[idx]/255; densG[i]+=pxG[idx]/255; densB[i]+=pxB[idx]/255;
         }
       }
     }
@@ -489,23 +451,22 @@ function buildDensity(){
 
 function drawScope(){
   if(!persR||W===0||H===0) return;
+  const DPR = window.devicePixelRatio || 1;
+  const PW = Math.round(W*DPR);
+  const PH = Math.round(H*DPR);
   const GAIN=GAIN_NUMER/AH;
-  const sz=W*H;
-  const imgData=new ImageData(W,H);
+  const sz=PW*PH;
+  const imgData=new ImageData(PW,PH);
   const buf=imgData.data;
   for(let i=0;i<sz;i++){
     persR[i]=persR[i]*DECAY+densR[i]*GAIN;
     persG[i]=persG[i]*DECAY+densG[i]*GAIN;
     persB[i]=persB[i]*DECAY+densB[i]*GAIN;
     const b=i*4;
-    // Apply gamma LUT for camera mode too
-    const ri = persR[i]>255?255: persR[i]<0?0: persR[i]|0;
-    const gi = persG[i]>255?255: persG[i]<0?0: persG[i]|0;
-    const bi = persB[i]>255?255: persB[i]<0?0: persB[i]|0;
-    buf[b]   = gammaLUT[ri];
-    buf[b+1] = gammaLUT[gi];
-    buf[b+2] = gammaLUT[bi];
-    buf[b+3] = 255;
+    buf[b]  =persR[i]>255?255:persR[i];
+    buf[b+1]=persG[i]>255?255:persG[i];
+    buf[b+2]=persB[i]>255?255:persB[i];
+    buf[b+3]=255;
   }
   wx.putImageData(imgData,0,0);
 }
@@ -517,14 +478,14 @@ document.querySelectorAll('.mb').forEach(btn=>{
     mode=btn.dataset.m;
     document.getElementById('hdrTitle').textContent={luma:'LUMA',rgb:'RGB OVERLAY',color:'COLOR'}[mode];
     clearPers();
-    if(source==='photo'&&photoLoaded) analyzePhoto();
+    if(source==='photo' && photoLoaded) analyzePhoto();
   });
 });
 
 // ── Start ─────────────────────────────────────────────────
 document.getElementById('startBtn').addEventListener('click', async()=>{
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const stream=await navigator.mediaDevices.getUserMedia({
       video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},
       audio:false
     });
